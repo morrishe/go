@@ -110,8 +110,9 @@ func main() {
                 close(dnChan)
         }()
 
-	var maxEntry, maxDepth, maxNameLen int
-	var maxdn DirNode
+	var maxEntry, maxDepth, maxNameLen	int
+	var maxdn	DirNode
+	var exceeded	bool
 	
 	//var loops int
         for dn := range dnChan {
@@ -122,39 +123,40 @@ func main() {
 			maxDepth = dn.Depth
 			if maxDepth > depthLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("    *** %s: depth[%d] EXCEED [%d], entrys[%d],  files[%d], dirs[%d]\n", dn.PathName, dn.Depth, depthLimit,
+				f.WriteString(fmt.Sprintf("    *** %s: depth[%d] EXCEED limit[%d], entrys[%d], files[%d], dirs[%d]\n", dn.PathName, dn.Depth, depthLimit,
 					dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts))
-				f.Sync()
-				fmt.Println("*** Break *** ")
-				os.Exit(2)
+				exceeded = true
+				break
 			}
 			maxdn = dn
 		} else if dn.FileCounts + dn.DirCounts > maxEntry {
 			maxEntry = dn.FileCounts + dn.DirCounts
 			if maxEntry > entryLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("    *** %s: depth[%d], entrys[%d] EXCEED [%d],  files[%d], dirs[%d]\n", dn.PathName, dn.Depth, 
+				f.WriteString(fmt.Sprintf("    *** %s: depth[%d], entrys[%d] EXCEED limit[%d], files[%d], dirs[%d]\n", dn.PathName, dn.Depth, 
 					dn.FileCounts+dn.DirCounts, entryLimit, dn.FileCounts, dn.DirCounts))
-				f.Sync()
-				fmt.Println("*** Break *** ")
-				os.Exit(2)
+				exceeded = true
+				break
 			}
 			maxdn = dn
 		} else if len(filepath.Base(dn.PathName)) > maxNameLen {
 			maxNameLen = len(filepath.Base(dn.PathName))
 			if maxNameLen > namelenLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("    *** %s: depth[%d], entrys[%d],  files[%d], dirs[%d], filenameLenth:[%d]\n", dn.PathName, dn.Depth, 
-					dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts, maxNameLen))
+				f.WriteString(fmt.Sprintf("    *** %s: depth[%d], entrys[%d],  files[%d], dirs[%d], filenameLenth:[%d] EXCEED limit[%d]\n", dn.PathName, dn.Depth, 
+					dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts, maxNameLen, namelenLimit))
 			}
 			maxdn = dn
 		}
 			
         }
+	if exceeded == true {
+		fmt.Println("*** Break *** ")
+		f.Close()
+		os.Exit(2)
+	}
 	f.WriteString(time.Now().String()[0:19])
 	f.WriteString(fmt.Sprintf("    %s: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxdn.PathName, maxdn.Depth, 
 		maxdn.FileCounts+maxdn.DirCounts, maxdn.FileCounts, maxdn.DirCounts))
-	f.Sync()
-
 	fmt.Println("Finished!")
 }
