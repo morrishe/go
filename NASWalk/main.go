@@ -9,24 +9,8 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"sync"
+	"time"
 )
-
-const (
-	ENTRYLIMIT = 512 * 1024
-	DEPTHLIMIT = 20
-	FILENAMELENLIMIT = 128
-	OUTPUTFILE = "/tmp/NasWalk.log"
-	GOROUTINECOUNTS = 16 
-)
-
-var entryLimit, depthLimit, fileNameLenLimit	int
-var outputFile string
-func init() {
-	flag.IntVar(&entryLimit, "entryLimit", ENTRYLIMIT, "entrys limit in a directory")
-	flag.IntVar(&depthLimit, "depthLimit", DEPTHLIMIT, "directory depth limit")
-	flag.IntVar(&fileNameLenLimit, "fileNameLenLimit", FILENAMELENLIMIT, "filename length limit")
-	flag.StringVar(&outputFile, "outputFile", OUTPUTFILE, "the pathname of output file")
-}
 
 
 type DirNode struct {
@@ -36,16 +20,16 @@ type DirNode struct {
 	PathName	string
 }
 
-func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode) {
+func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode, sema chan struct{}) {
         defer n.Done()
-	entrys := dirents(dir)
+	entrys := dirents(dir, sema)
 	var dirCounts, fileCounts int
         for _, entry := range entrys {
                 if entry.IsDir() {
 			dirCounts++
                         n.Add(1)
                         subdir := filepath.Join(dir, entry.Name())
-                        go walkDir(subdir, depth+1, n, ch)
+                        go walkDir(subdir, depth+1, n, ch, sema)
                 } else {
 			fileCounts++
 		}
@@ -58,8 +42,9 @@ func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode) {
         ch <- dn
 }
 
-var sema = make(chan struct{}, 32)
-func dirents(dir string) []os.FileInfo {
+//var sema = make(chan struct{}, 32)
+var workers int
+func dirents(dir string, sema chan struct{}) []os.FileInfo {
         sema <- struct{}{}
         defer func() { <-sema }()
 
@@ -71,18 +56,44 @@ func dirents(dir string) []os.FileInfo {
         return entries
 }
 
+const (
+	ENTRYLIMIT = 512 * 1024
+	DEPTHLIMIT = 20
+	NAMELENLIMIT = 128
+	OUTPUTFILE = "/tmp/NasWalk.log"
+	GOROUTINEWORKER = 16 
+)
 
 func main() {
+	var entryLimit,depthLimit,goWorker,namelenLimit int
+	var output string
+	flag.IntVar(&entryLimit, "el", ENTRYLIMIT, "maxinum directory entrys")
+	flag.IntVar(&depthLimit, "dl", DEPTHLIMIT, "maxinum directory depth")
+	flag.IntVar(&goWorker, "gol", GOROUTINEWORKER, "concurrent goroutine worker")
+	flag.IntVar(&namelenLimit, "nl", NAMELENLIMIT, "maxinum file name length")
+	flag.StringVar(&output, "output", "/tmp/nasWalk.output", "output filename")
+
         flag.Parse()
         roots := flag.Args()
-        if len(roots) == 0 {
-		fmt.Fprintf(os.Stderr, "USAGE: %s [options] path1 path2...\n", os.Args[0])
-		flag.PrintDefaults()
+        if len(roots) != 1 {
+		fmt.Fprintf(os.Stderr, "USAGE: %s: [options] dir\n", os.Args[0])
+    		flag.PrintDefaults()
 		os.Exit(1)
         }
 
+	f, err := os.OpenFile(output, os.O_APPEND | os.O_RDWR | os.O_CREATE, 0755)
+        if err != nil {
+                log.Fatal(err)
+        }
+        defer f.Close()
+
+	sema := make(chan struct{}, goWorker)
         dnChan := make(chan DirNode)
         var n sync.WaitGroup
+
+	fmt.Println("Begin work ......")
+	fmt.Printf("goroutine[%d], entryLimit[%d], depthLimit[%d], namelenLimit[%d], output:[%s]\n", goWorker, entryLimit, depthLimit, namelenLimit, output)
+
         for _, root := range roots {
                 n.Add(1)
 		absRoot, err := filepath.Abs(root)
@@ -91,7 +102,7 @@ func main() {
 			continue
 		}
 		depth := strings.Count(absRoot, "/")
-                go walkDir(absRoot, depth, &n, dnChan)
+                go walkDir(absRoot, depth, &n, dnChan, sema)
         }
 
         go func() {
@@ -101,40 +112,49 @@ func main() {
 
 	var maxEntry, maxDepth, maxNameLen int
 	var maxdn DirNode
-loop:
-        for {
-                select {
-                case dn, ok := <-dnChan:
-                        if !ok {
-                                break loop
-                        }
-			//fmt.Printf("DIR:[%s]: depth[%d], files[%d], dirs[%d]\n", dn.PathName, dn.Depth, dn.FileCounts, dn.DirCounts)
-			if dn.Depth > maxDepth {
-				maxDepth = dn.Depth
-				if maxDepth > depthLimit {
-					log.Fatalf("DIR:[%s], depth[%d] *** EXCEED LIMIT ***, entry[%d],  files[%d], dirs[%d] \n", dn.PathName, dn.Depth, 
-						dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts)
-				}
-				maxdn = dn
-			} else if dn.FileCounts + dn.DirCounts > maxEntry {
-				maxEntry = dn.FileCounts + dn.DirCounts
-				if maxEntry > entryLimit {
-					log.Fatalf("DIR:[%s], depth[%d], entry[%d] *** EXCEED LIMIT ***,  files[%d], dirs[%d] \n", dn.PathName, dn.Depth, 
-						dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts)
-				}
-				maxdn = dn
-			} else if len(filepath.Base(dn.PathName)) > maxNameLen {
-				maxNameLen = len(filepath.Base(dn.PathName))
-				if maxNameLen > fileNameLenLimit {
-					log.Printf("DIR:[%s], depth[%d] exceeds, entry[%d],  files[%d], dirs[%d] \n", dn.PathName, dn.Depth, 
-						dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts)
-				}
-				maxdn = dn
+	
+	//var loops int
+        for dn := range dnChan {
+		//loops++
+		//fmt.Println(loops)
+		//fmt.Printf("DIR:[%s]: depth[%d], files[%d], dirs[%d]\n", dn.PathName, dn.Depth, dn.FileCounts, dn.DirCounts)
+		if dn.Depth > maxDepth {
+			maxDepth = dn.Depth
+			if maxDepth > depthLimit {
+				f.WriteString(time.Now().String()[0:19])
+				f.WriteString(fmt.Sprintf("    *** %s: depth[%d] EXCEED [%d], entrys[%d],  files[%d], dirs[%d]\n", dn.PathName, dn.Depth, depthLimit,
+					dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts))
+				f.Sync()
+				fmt.Println("*** Break *** ")
+				os.Exit(2)
 			}
+			maxdn = dn
+		} else if dn.FileCounts + dn.DirCounts > maxEntry {
+			maxEntry = dn.FileCounts + dn.DirCounts
+			if maxEntry > entryLimit {
+				f.WriteString(time.Now().String()[0:19])
+				f.WriteString(fmt.Sprintf("    *** %s: depth[%d], entrys[%d] EXCEED [%d],  files[%d], dirs[%d]\n", dn.PathName, dn.Depth, 
+					dn.FileCounts+dn.DirCounts, entryLimit, dn.FileCounts, dn.DirCounts))
+				f.Sync()
+				fmt.Println("*** Break *** ")
+				os.Exit(2)
+			}
+			maxdn = dn
+		} else if len(filepath.Base(dn.PathName)) > maxNameLen {
+			maxNameLen = len(filepath.Base(dn.PathName))
+			if maxNameLen > namelenLimit {
+				f.WriteString(time.Now().String()[0:19])
+				f.WriteString(fmt.Sprintf("    *** %s: depth[%d], entrys[%d],  files[%d], dirs[%d], filenameLenth:[%d]\n", dn.PathName, dn.Depth, 
+					dn.FileCounts+dn.DirCounts, dn.FileCounts, dn.DirCounts, maxNameLen))
+			}
+			maxdn = dn
+		}
 			
-		default:
-                }
         }
+	f.WriteString(time.Now().String()[0:19])
+	f.WriteString(fmt.Sprintf("    %s: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxdn.PathName, maxdn.Depth, 
+		maxdn.FileCounts+maxdn.DirCounts, maxdn.FileCounts, maxdn.DirCounts))
+	f.Sync()
 
-	fmt.Printf("MaxDirNode: DIR:[%s]: depth[%d], files[%d], dirs[%d]\n", maxdn.PathName, maxdn.Depth, maxdn.FileCounts, maxdn.DirCounts)
+	fmt.Println("Finished!")
 }
