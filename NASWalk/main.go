@@ -91,20 +91,22 @@ func main() {
 		os.Exit(1)
         }
 
+	//Only walk a top-level directory for simple
+	root := roots[0]
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if _, err := os.Stat(absRoot); os.IsNotExist(err) {
+		fmt.Printf("ERROR: %s is not exists, Quit!\n", absRoot)
+		os.Exit(2)
+	}
+
 	f, err := os.OpenFile(output, os.O_APPEND | os.O_RDWR | os.O_CREATE, 0755)
         if err != nil {
                 log.Fatal(err)
         }
         defer f.Close()
-
-	//Only walk a top-level directory for simple
-	root := roots[0]
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		f.Close()
-		log.Fatalln(err)
-	}
-	depth := strings.Count(absRoot, "/")
 
 	f.WriteString(time.Now().String()[0:19])
 	f.WriteString(fmt.Sprintf("     Begin walk directory: [%s] ......\n", absRoot))
@@ -114,14 +116,15 @@ func main() {
 	sema := make(chan struct{}, goWorker)
         dnChan := make(chan DirNode)
         var n sync.WaitGroup
+
 	n.Add(1)
+	depth := strings.Count(absRoot, "/")
 	go walkDir(absRoot, depth, &n, dnChan, sema)
 
         go func() {
                 n.Wait()
                 close(dnChan)
         }()
-
 
 	var maxEntry, maxDepth, maxNameLen		int
 	var maxDepthDN, maxEntryDN, maxNameLenDN	DirNode
@@ -132,7 +135,7 @@ func main() {
 			maxDepth = dn.Depth
 			if maxDepth > depthLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("     *** depth EXCEEDS,  Quit walk!!!!!!\n"))
+				f.WriteString(fmt.Sprintf("     *** depth EXCEEDS ***  Quit walk......\n"))
 				depthExceeded = true
 				maxDepthDN = dn
 				break
@@ -143,7 +146,7 @@ func main() {
 			maxEntry = dn.FileCounts + dn.DirCounts
 			if maxEntry > entryLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("     *** entrys EXCEEDS,  Quit walk!!!!!!\n"))
+				f.WriteString(fmt.Sprintf("     *** entrys EXCEEDS ***   Quit walk......\n"))
 				entryExceeded = true
 				maxEntryDN = dn
 				break
@@ -154,7 +157,7 @@ func main() {
 			maxNameLen = dn.maxNameLen
 			if maxNameLen > namelenLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("     *** filenameLen EXCEEDS, Continue walk!!!!!!\n"))
+				f.WriteString(fmt.Sprintf("     *** filenameLen EXCEEDS *** , Continue walk......\n"))
 				f.WriteString(fmt.Sprintf("                       %s: filenameLenth:[%d] EXCEED limit[%d]\n", 
 					filepath.Join(dn.PathName, dn.maxNameLenFile), maxNameLen, namelenLimit))
 			}
@@ -163,7 +166,7 @@ func main() {
 			
         }
 
-	f.WriteString(fmt.Sprintf("                        ---------------------------- RESULT ------------------------\n"))
+	f.WriteString(fmt.Sprintf("                        ------------------------ RESULT ----------------------------\n"))
 	f.WriteString(fmt.Sprintf("                        maxDepth: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxDepthDN.PathName, maxDepthDN.Depth, 
 		maxDepthDN.FileCounts+maxDepthDN.DirCounts, maxDepthDN.FileCounts, maxDepthDN.DirCounts))
 	f.WriteString(fmt.Sprintf("                        maxEntry: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxEntryDN.PathName, maxEntryDN.Depth, 
