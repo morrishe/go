@@ -167,20 +167,29 @@ func main() {
         }
 
 	f.WriteString(fmt.Sprintf("                        ------------------------ RESULT ----------------------------\n"))
-	f.WriteString(fmt.Sprintf("                        maxDepth: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxDepthDN.PathName, maxDepthDN.Depth, 
-		maxDepthDN.FileCounts+maxDepthDN.DirCounts, maxDepthDN.FileCounts, maxDepthDN.DirCounts))
-	f.WriteString(fmt.Sprintf("                        maxEntry: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxEntryDN.PathName, maxEntryDN.Depth, 
-		maxEntryDN.FileCounts+maxEntryDN.DirCounts, maxEntryDN.FileCounts, maxEntryDN.DirCounts))
-	f.WriteString(fmt.Sprintf("                        maxNameLen: [%s] length[%d]\n", filepath.Join(maxNameLenDN.PathName, maxNameLenDN.maxNameLenFile), maxNameLenDN.maxNameLen))
+	if !depthExceeded && !entryExceeded {
+		f.WriteString(fmt.Sprintf("                        maxDepth: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxDepthDN.PathName, maxDepthDN.Depth, 
+			maxDepthDN.FileCounts+maxDepthDN.DirCounts, maxDepthDN.FileCounts, maxDepthDN.DirCounts))
+		f.WriteString(fmt.Sprintf("                        maxEntry: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxEntryDN.PathName, maxEntryDN.Depth, 
+			maxEntryDN.FileCounts+maxEntryDN.DirCounts, maxEntryDN.FileCounts, maxEntryDN.DirCounts))
+		f.WriteString(fmt.Sprintf("                        maxNameLen: [%s] length[%d]\n", filepath.Join(maxNameLenDN.PathName, maxNameLenDN.maxNameLenFile), maxNameLenDN.maxNameLen))
+	} else if depthExceeded {
+		f.WriteString(fmt.Sprintf("                        maxDepth: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxDepthDN.PathName, maxDepthDN.Depth, 
+			maxDepthDN.FileCounts+maxDepthDN.DirCounts, maxDepthDN.FileCounts, maxDepthDN.DirCounts))
+	} else if entryExceeded {
+		f.WriteString(fmt.Sprintf("                        maxEntry: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxEntryDN.PathName, maxEntryDN.Depth, 
+			maxEntryDN.FileCounts+maxEntryDN.DirCounts, maxEntryDN.FileCounts, maxEntryDN.DirCounts))
+	}
 	f.WriteString(fmt.Sprintf("                        ------------------------ End of RESULT ---------------------\n"))
+
 	if depthExceeded == true {
 		f.WriteString(time.Now().String()[0:19])
-		f.WriteString(fmt.Sprintf("     *** Interrupt walk [%s]!!!  because of DEPTH EXCEED limit ***\n\n\n", absRoot))
+		f.WriteString(fmt.Sprintf("     *** Interrupt walk [%s]!!!  because of 'Depth' EXCEED limit ***\n\n\n", absRoot))
 	} else if entryExceeded == true {
 		f.WriteString(time.Now().String()[0:19])
-		f.WriteString(fmt.Sprintf("     *** Interrupt walk [%s]!!!  because of EXCEED limit ***\n\n\n", absRoot))
+		f.WriteString(fmt.Sprintf("     *** Interrupt walk [%s]!!!  because of 'Entry' EXCEED limit ***\n\n\n", absRoot))
 	} else {
 		f.WriteString(time.Now().String()[0:19])
-		f.WriteString(fmt.Sprintf("     Finished walk [%s], Everything is Perfect!!!\n\n\n", absRoot))
+		f.WriteString(fmt.Sprintf("     Finished walk [%s], Everything is OK!!!\n\n\n", absRoot))
 	}
 }
