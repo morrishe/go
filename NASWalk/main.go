@@ -28,6 +28,9 @@ func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode, sema 
 	var dirCounts, fileCounts, maxNameLen int
 	var maxNameLenFile string
         for _, entry := range entrys {
+		if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
+			continue
+		}
 		if len(entry.Name()) > maxNameLen {
 			maxNameLen = len(entry.Name())
 			maxNameLenFile = entry.Name()
@@ -53,7 +56,6 @@ func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode, sema 
 }
 
 //var sema = make(chan struct{}, 32)
-//var workers int
 func dirents(dir string, sema chan struct{}) []os.FileInfo {
         sema <- struct{}{}
         defer func() { <-sema }()
@@ -71,7 +73,7 @@ const (
 	DEPTHLIMIT = 20
 	NAMELENLIMIT = 128
 	OUTPUTFILE = "/tmp/NasWalk.log"
-	GOROUTINEWORKER = 16 
+	GOROUTINEWORKER = 8 
 )
 
 func main() {
@@ -135,7 +137,7 @@ func main() {
 			maxDepth = dn.Depth
 			if maxDepth > depthLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("     *** depth EXCEEDS ***  Quit walk......\n"))
+				f.WriteString(fmt.Sprintf("     *** depth EXCEEDS *** , Quit walk......\n"))
 				depthExceeded = true
 				maxDepthDN = dn
 				break
@@ -146,7 +148,7 @@ func main() {
 			maxEntry = dn.FileCounts + dn.DirCounts
 			if maxEntry > entryLimit {
 				f.WriteString(time.Now().String()[0:19])
-				f.WriteString(fmt.Sprintf("     *** entrys EXCEEDS ***   Quit walk......\n"))
+				f.WriteString(fmt.Sprintf("     *** entrys EXCEEDS *** , Quit walk......\n"))
 				entryExceeded = true
 				maxEntryDN = dn
 				break
