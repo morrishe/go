@@ -160,7 +160,7 @@ func main() {
 			if maxNameLen > namelenLimit {
 				f.WriteString(time.Now().String()[0:19])
 				f.WriteString(fmt.Sprintf("     *** filenameLen EXCEEDS *** , Continue walk......\n"))
-				f.WriteString(fmt.Sprintf("                       %s: filenameLenth:[%d] EXCEED limit[%d]\n", 
+				f.WriteString(fmt.Sprintf("                        %s: filenameLenth:[%d] EXCEED limit[%d]\n", 
 					filepath.Join(dn.PathName, dn.maxNameLenFile), maxNameLen, namelenLimit))
 			}
 			maxNameLenDN = dn
