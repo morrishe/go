@@ -23,19 +23,22 @@ type DirNode struct {
 	errExist	bool
 }
 
+// log file, default '/tmp/NASCopy.log'
+var logger	*log.Logger
+
 func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode, sema chan struct{}) {
         defer n.Done()
 	var srcFi	os.FileInfo
 
 	srcFi, err := os.Lstat(srcDir)
 	if os.IsNotExist(err) {
-		fmt.Printf("srcDir['%s'] is not exists", srcDir)
+		fmt.Fprintf(os.Stderr, "srcDir['%s'] is not exists", srcDir)
 		os.Exit(2)	
 	} else {
 		if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
 			err := os.MkdirAll(dstDir, srcFi.Mode())
 			if err != nil {
-				fmt.Printf("MkdirAll(%s) error: %v", dstDir, err)
+				fmt.Fprintf(os.Stderr, "MkdirAll(%s) error: %v", dstDir, err)
 				os.Exit(2)
 			}
 		}
@@ -85,14 +88,14 @@ func do_copy(dstFile string, srcFile string) (int64, error) {
 	sfi, err = os.Lstat(srcFile)
 	dfi, err = os.Lstat(dstFile)
 	if os.IsNotExist(err) || dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
-		fmt.Printf("copy '%s' to '%s'\n", srcFile, dstFile)	
+		logger.Printf("\t copy '%s' to '%s'\n", srcFile, dstFile)	
 		if sf, err = os.Open(srcFile); err != nil {
-			fmt.Printf("open '%s' error: %v\n", srcFile, err)
+			fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", srcFile, err)
 			return 0, err 
 		}
 		defer sf.Close()
 		if df, err = os.Create(dstFile); err != nil {
-			fmt.Printf("open '%s' error: %v\n", dstFile, err)
+			fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", dstFile, err)
 			return 0, err
 		}
 		defer df.Close()
@@ -100,7 +103,7 @@ func do_copy(dstFile string, srcFile string) (int64, error) {
 		writtenSize, err = io.Copy(df, sf)
 
 	} else {
-		fmt.Printf("%s exist, skip it\n", dstFile)
+		fmt.Fprintf(os.Stderr, "%s exist, skip it\n", dstFile)
 		return 0, err
 	}
 	
@@ -122,15 +125,17 @@ func dirents(dir string, sema chan struct{}) []os.FileInfo {
         return entries
 }
 
+
+
 const (
-	GOROUTINEWORKER = 16 
+	GOROUTINEWORKER = 8
 )
 
 func main() {
 	var goWorker	int
-	var output string
+	var logfile	string
 	flag.IntVar(&goWorker, "gol", GOROUTINEWORKER, "concurrent goroutine worker")
-	flag.StringVar(&output, "output", "/var/log/nasCopy.output", "output filename")
+	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
 
         flag.Parse()
         args := flag.Args()
@@ -140,7 +145,13 @@ func main() {
 		os.Exit(1)
         }
 
-	//Only walk a top-level directory for simple
+        l, err := os.OpenFile(logfile, os.O_APPEND | os.O_RDWR | os.O_CREATE, 0755)
+        if err != nil {
+                log.Fatal(err)
+        }
+        defer l.Close()
+	logger = log.New(l, "", log.LstdFlags)
+
 	srcDir := args[0]
 	absSrcDir, err := filepath.Abs(srcDir)
 	if err != nil {
@@ -151,13 +162,19 @@ func main() {
 		os.Exit(2)
 	}
 	dstDir := args[1]
+	absDstDir, err := filepath.Abs(dstDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	logger.Printf("\t Begin to COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
 
 	sema := make(chan struct{}, goWorker)
         dnChan := make(chan DirNode)
         var n sync.WaitGroup
 
 	n.Add(1)
-	go copyDir(dstDir, absSrcDir, &n, dnChan, sema)
+	go copyDir(absDstDir, absSrcDir, &n, dnChan, sema)
 
         go func() {
                 n.Wait()
@@ -165,6 +182,8 @@ func main() {
         }()
 
         for dn := range dnChan {
-		fmt.Printf("Dir: %s, Total size: %d\n", dn.srcDir, dn.totalSize)
+		logger.Printf("\t Directory: %s, Total size: %d\n", dn.srcDir, dn.totalSize)
         }
+	logger.Printf("\t Finished COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
+	logger.Printf("\n\n\n")
 }
