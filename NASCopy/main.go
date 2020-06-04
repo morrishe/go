@@ -59,7 +59,7 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 			totalSize += entry.Size()
 			srcFile := filepath.Join(srcDir, entry.Name())
 			dstFile := filepath.Join(dstDir, entry.Name())
-			_, err := do_copy(dstFile, srcFile)
+			_, err := doCopy(dstFile, srcFile)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "copy [%s] to [%s] occur error\n", srcFile, dstFile)
 				errExist = true
@@ -79,37 +79,77 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 }
 
 
-func do_copy(dstFile string, srcFile string) (int64, error) {
+func doCopy(dstFile string, srcFile string) (int64, error) {
 	var sfi, dfi	os.FileInfo
-	var sf, df	*os.File
 	var err	error 
 	var writtenSize int64
 
 	sfi, err = os.Lstat(srcFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		logger.Fatal("\t Impossible!, BUG, Quit")
+	}
+	mode := sfi.Mode()
+	switch {
+	case mode&os.ModeNamedPipe != 0:
+		logger.Printf("\t '%s' is NamedPipe file, skipped!\n", srcFile)
+		return 0, nil
+	case mode&os.ModeSocket != 0:
+		logger.Printf("\t '%s' is Socket file, skipped!\n", srcFile)
+		return 0, nil
+	case mode&os.ModeDevice != 0:
+		logger.Printf("\t '%s' is Device file, skipped!\n", srcFile)
+		return 0, nil
+	case mode&os.ModeIrregular != 0:
+		logger.Printf("\t '%s' is Irregular file, skipped!\n", srcFile)
+		return 0, nil
+	}
+
+	if mode&os.ModeSymlink != 0 { //symblink file
+		os.Remove(dstFile) // ignore error
+		if link, err := os.Readlink(srcFile); err != nil {
+			logger.Fatal("\t Readlink('%s') error n", srcFile)
+		} else {
+			err = os.Symlink(link, dstFile)
+			if err != nil {
+				logger.Fatal("\t Readlink('%s') error n", srcFile)
+			}
+			return int64(len(link)), nil
+		}
+	}
+
 	dfi, err = os.Lstat(dstFile)
 	if os.IsNotExist(err) || dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
-		logger.Printf("\t copy '%s' to '%s'\n", srcFile, dstFile)	
-		if sf, err = os.Open(srcFile); err != nil {
-			fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", srcFile, err)
-			return 0, err 
-		}
-		defer sf.Close()
-		if df, err = os.Create(dstFile); err != nil {
-			fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", dstFile, err)
-			return 0, err
-		}
-		defer df.Close()
-		
-		writtenSize, err = io.Copy(df, sf)
-
+		// ModTime or Size is not same, file modified, copy it
+		writtenSize, err = doRegularFileCopy(dstFile, srcFile)
 	} else {
-		fmt.Fprintf(os.Stderr, "%s exist, skip it\n", dstFile)
+		logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
 		return 0, err
 	}
-	
 	return  writtenSize, err
-
 }
+
+func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
+	var sf, df	*os.File
+	var err		error 
+	var writtenSize int64
+
+	if sf, err = os.Open(srcFile); err != nil {
+		fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", srcFile, err)
+		return 0, err 
+	}
+	defer sf.Close()
+	if df, err = os.Create(dstFile); err != nil {
+		fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", dstFile, err)
+		return 0, err
+	}
+	defer df.Close()
+	
+	writtenSize, err = io.Copy(df, sf)
+	
+	return writtenSize, err
+}
+
 
 
 //var sema = make(chan struct{}, 32)
@@ -167,6 +207,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logger.Printf("\t #############################  BEGIN  #########################################################\n")
 	logger.Printf("\t Begin to COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
 
 	sema := make(chan struct{}, goWorker)
@@ -182,8 +223,8 @@ func main() {
         }()
 
         for dn := range dnChan {
-		logger.Printf("\t Directory: %s, Total size: %d\n", dn.srcDir, dn.totalSize)
+		logger.Printf("\t Finish copy Directory['%s'], Total size: %d\n", dn.srcDir, dn.totalSize)
         }
 	logger.Printf("\t Finished COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
-	logger.Printf("\n\n\n")
+	logger.Printf("\t ############################### END #############################################################\n")
 }
