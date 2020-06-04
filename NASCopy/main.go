@@ -19,8 +19,11 @@ type DirNode struct {
 	dstDir		string
 	fileCount	int64
 	dirCount	int64
-	totalSize	int64
-	errExist	bool
+	unsupportCount	int64
+	skipCount	int64
+	errCount	int64
+	totalSrcSize	int64
+	totalCopySize	int64
 }
 
 // log file, default '/tmp/NASCopy.log'
@@ -39,14 +42,14 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 			err := os.MkdirAll(dstDir, srcFi.Mode())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "MkdirAll(%s) error: %v", dstDir, err)
+				logger.Printf("\t MkdirAll(%s) error: %v", dstDir, err)
 				os.Exit(2)
 			}
 		}
 	}
 
 	entrys := dirents(srcDir, sema)
-	var dirCount, fileCount, totalSize	int64
-	var errExist	bool
+	var dirCount, fileCount, totalSrcSize, totalCopySize, unsupportCount, skipCount, errCount	int64
         for _, entry := range entrys {
                 if entry.IsDir() {
 			dirCount++
@@ -56,14 +59,19 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
                         go copyDir(subDstDir, subSrcDir, n, ch, sema)
                 } else {
 			fileCount++
-			totalSize += entry.Size()
+			totalSrcSize += entry.Size()
 			srcFile := filepath.Join(srcDir, entry.Name())
 			dstFile := filepath.Join(dstDir, entry.Name())
-			_, err := doCopy(dstFile, srcFile)
+			size, unsupport, skip, err := doCopy(dstFile, srcFile)
+			totalCopySize += size
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "copy [%s] to [%s] occur error\n", srcFile, dstFile)
-				errExist = true
-				continue
+				logger.Printf("\t copy [%s] to [%s] occur error[%v]\n", srcFile, dstFile, err)
+				errCount++
+			} else if skip {
+				skipCount++
+			} else if unsupport {
+				unsupportCount++
 			}
 		}
         }
@@ -72,17 +80,21 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 	dn.dstDir = dstDir
 	dn.dirCount = dirCount
 	dn.fileCount = fileCount
-	dn.totalSize = totalSize
-	dn.errExist = errExist
+	dn.unsupportCount = unsupportCount
+	dn.skipCount = skipCount
+	dn.errCount = errCount
+	dn.totalSrcSize = totalSrcSize
+	dn.totalCopySize = totalCopySize
 	
         ch <- dn
 }
 
 
-func doCopy(dstFile string, srcFile string) (int64, error) {
+func doCopy(dstFile string, srcFile string) (int64, bool, bool, error) {
 	var sfi, dfi	os.FileInfo
 	var err	error 
 	var writtenSize int64
+	var unsupport, skip bool
 
 	sfi, err = os.Lstat(srcFile)
 	if err != nil {
@@ -92,29 +104,35 @@ func doCopy(dstFile string, srcFile string) (int64, error) {
 	mode := sfi.Mode()
 	switch {
 	case mode&os.ModeNamedPipe != 0:
-		logger.Printf("\t '%s' is NamedPipe file, skipped!\n", srcFile)
-		return 0, nil
+		logger.Printf("\t '%s' is NamedPipe file, unsupport!\n", srcFile)
+		unsupport = true
 	case mode&os.ModeSocket != 0:
-		logger.Printf("\t '%s' is Socket file, skipped!\n", srcFile)
-		return 0, nil
+		logger.Printf("\t '%s' is Socket file, unsupport!\n", srcFile)
+		unsupport = true
 	case mode&os.ModeDevice != 0:
-		logger.Printf("\t '%s' is Device file, skipped!\n", srcFile)
-		return 0, nil
+		logger.Printf("\t '%s' is Device file, unsupport!\n", srcFile)
+		unsupport = true
+		return 0, true, false, nil
 	case mode&os.ModeIrregular != 0:
-		logger.Printf("\t '%s' is Irregular file, skipped!\n", srcFile)
-		return 0, nil
+		logger.Printf("\t '%s' is Irregular file, unsupport!\n", srcFile)
+		unsupport = true
+	}
+	if unsupport {
+		//return 0, unsupport, skip, nil
+		return 0, unsupport, false, nil
 	}
 
 	if mode&os.ModeSymlink != 0 { //symblink file
 		os.Remove(dstFile) // ignore error
 		if link, err := os.Readlink(srcFile); err != nil {
-			logger.Fatal("\t Readlink('%s') error n", srcFile)
+			logger.Printf("\t os.Readlink('%s') error n", srcFile)
+			return 0, false, false, err
 		} else {
 			err = os.Symlink(link, dstFile)
 			if err != nil {
-				logger.Fatal("\t Readlink('%s') error n", srcFile)
+				logger.Printf("\t os.Symlink('%s') error n", srcFile)
 			}
-			return int64(len(link)), nil
+			return 0, false, false, err 
 		}
 	}
 
@@ -124,9 +142,10 @@ func doCopy(dstFile string, srcFile string) (int64, error) {
 		writtenSize, err = doRegularFileCopy(dstFile, srcFile)
 	} else {
 		logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
-		return 0, err
+		skip = true
+		return 0, false, skip, err
 	}
-	return  writtenSize, err
+	return  writtenSize, false, false, err
 }
 
 func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
@@ -223,8 +242,10 @@ func main() {
         }()
 
         for dn := range dnChan {
-		logger.Printf("\t Finish copy Directory['%s'], Total size: %d\n", dn.srcDir, dn.totalSize)
+		logger.Printf("\t Finish copy Directory['%s'] to ['%s']\n", dn.srcDir, dn.dstDir)
+		logger.Printf("\t     Summary: File[%d], Dir[%d], TotalSrcSize[%d], TotalCopySize[%d], unsupport[%d], skip[%d], err[%d]\n", dn.fileCount, dn.dirCount, 
+				dn.totalSrcSize, dn.totalCopySize, dn.unsupportCount, dn.skipCount, dn.errCount)
         }
-	logger.Printf("\t Finished COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
-	logger.Printf("\t ############################### END #############################################################\n")
+	logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
+	logger.Printf("\t ############################### END #############################################################\n\n\n")
 }
