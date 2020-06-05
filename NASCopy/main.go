@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"syscall"
 	"fmt"
 	//"strings"
 	"flag"
@@ -10,7 +11,7 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"sync"
-	//"time"
+	"time"
 )
 
 
@@ -45,6 +46,10 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 				logger.Printf("\t MkdirAll(%s) error: %v", dstDir, err)
 				os.Exit(2)
 			}
+			e := copyTimeOwner(dstDir, srcDir)
+			if (e != nil) {
+				fmt.Fprintf(os.Stderr, "copyTimeOwner(%s, %s) error: %v\n", dstDir, srcDir, e)
+			}
 		}
 	}
 
@@ -72,6 +77,11 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 				skipCount++
 			} else if unsupport {
 				unsupportCount++
+			} else {
+				e := copyTimeOwner(dstFile, srcFile)
+				if (e != nil) {
+					fmt.Fprintf(os.Stderr, "copyTimeOwner(%s, %s) error: %v\n", dstFile, srcFile, e)
+				}
 			}
 		}
         }
@@ -132,7 +142,7 @@ func doCopy(dstFile string, srcFile string) (int64, bool, bool, error) {
 			if err != nil {
 				logger.Printf("\t os.Symlink('%s') error n", srcFile)
 			}
-			return 0, false, false, err 
+			return int64(len(link)), false, false, err 
 		}
 	}
 
@@ -141,7 +151,7 @@ func doCopy(dstFile string, srcFile string) (int64, bool, bool, error) {
 		// ModTime or Size is not same, file modified, copy it
 		writtenSize, err = doRegularFileCopy(dstFile, srcFile)
 	} else {
-		logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
+		//logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
 		skip = true
 		return 0, false, skip, err
 	}
@@ -163,12 +173,39 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 		return 0, err
 	}
 	defer df.Close()
-	
 	writtenSize, err = io.Copy(df, sf)
-	
 	return writtenSize, err
 }
 
+func copyTimeOwner(dst string, src string) error {
+	if fi, err := os.Lstat(src); err == nil {
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+			uid := int(st.Uid)
+			gid := int(st.Gid)
+			atim := st.Atim
+			mtim := st.Mtim
+
+			atime := time.Unix(atim.Sec, atim.Nsec)
+			mtime := time.Unix(mtim.Sec, mtim.Nsec)
+			mode := fi.Mode()
+			if mode&os.ModeSymlink == 0 { //ignore symlink
+				if e := os.Chmod(dst, mode); e != nil {
+					logger.Printf("\t chmod(%s, %v) error\n", dst, mode)
+					return e 
+				}
+				if e := os.Chtimes(dst, atime, mtime); e != nil {
+					logger.Printf("\t os.Chtimes(%s, %v, %v) error\n", dst, atime, mtime)
+					return e 
+				}
+			}
+			if e := os.Lchown(dst, uid, gid); e != nil {
+				logger.Printf("\t chown(%s, %d, %d) error\n", dst, uid, gid)
+				return e 
+			}
+		}
+	}
+	return nil
+}
 
 
 //var sema = make(chan struct{}, 32)
@@ -183,8 +220,6 @@ func dirents(dir string, sema chan struct{}) []os.FileInfo {
         }
         return entries
 }
-
-
 
 const (
 	GOROUTINEWORKER = 8
@@ -241,11 +276,29 @@ func main() {
                 close(dnChan)
         }()
 
+	var allTotalSrcSize, allTotalCopySize, allDirCount, allFileCount, allUnsupportCount, allSkipCount, allErrCount	int64
         for dn := range dnChan {
+		allTotalSrcSize += dn.totalSrcSize
+		allTotalCopySize += dn.totalCopySize
+		allDirCount += dn.dirCount
+		allFileCount += dn.fileCount
+		allUnsupportCount += dn.unsupportCount
+		allSkipCount += dn.skipCount
+		allErrCount += dn.errCount
 		logger.Printf("\t Finish copy Directory['%s'] to ['%s']\n", dn.srcDir, dn.dstDir)
-		logger.Printf("\t     Summary: File[%d], Dir[%d], TotalSrcSize[%d], TotalCopySize[%d], unsupport[%d], skip[%d], err[%d]\n", dn.fileCount, dn.dirCount, 
+		logger.Printf("\t\tSummary: File[%d], Dir[%d], TotalSrcSize[%d], TotalCopySize[%d], unsupport[%d], skip[%d], err[%d]\n", dn.fileCount, dn.dirCount, 
 				dn.totalSrcSize, dn.totalCopySize, dn.unsupportCount, dn.skipCount, dn.errCount)
         }
 	logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
+	logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
+	logger.Printf("\t Summary: allFile[%d], allDir[%d], allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n", allFileCount, allDirCount, 
+				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+	logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 	logger.Printf("\t ############################### END #############################################################\n\n\n")
+
+	fmt.Printf("Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
+	fmt.Printf("----------------------------------------------------------------------------------------------------------------------------------------------------\n")
+	fmt.Printf("Summary: allFile[%d], allDir[%d], allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n", allFileCount, allDirCount, 
+				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+	fmt.Printf("----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 }
