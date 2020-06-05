@@ -30,44 +30,52 @@ type DirNode struct {
 // log file, default '/tmp/NASCopy.log'
 var logger	*log.Logger
 
-func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode, sema chan struct{}) {
+func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode, sema chan struct{}) {
         defer n.Done()
+
+	/* control concurrent walk directory count
+	   default is 128
+	*/
+        sema <- struct{}{}
+        defer func() { <-sema }()
+
 	var srcFi	os.FileInfo
 
 	srcFi, err := os.Lstat(srcDir)
 	if os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "srcDir['%s'] is not exists", srcDir)
-		os.Exit(2)	
+		return
 	} else {
 		if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
 			err := os.MkdirAll(dstDir, srcFi.Mode())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "MkdirAll(%s) error: %v", dstDir, err)
 				logger.Printf("\t MkdirAll(%s) error: %v", dstDir, err)
-				os.Exit(2)
+				return
 			}
-			e := copyTimeOwner(dstDir, srcDir)
+			e := copyFileAttribute(dstDir, srcDir)
 			if (e != nil) {
-				fmt.Fprintf(os.Stderr, "copyTimeOwner(%s, %s) error: %v\n", dstDir, srcDir, e)
+				fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstDir, srcDir, e)
+				return
 			}
 		}
 	}
 
-	entrys := dirents(srcDir, sema)
+	entrys := dirents(srcDir)
 	var dirCount, fileCount, totalSrcSize, totalCopySize, unsupportCount, skipCount, errCount	int64
         for _, entry := range entrys {
                 if entry.IsDir() {
 			dirCount++
-                        n.Add(1)
                         subSrcDir := filepath.Join(srcDir, entry.Name())
 			subDstDir := filepath.Join(dstDir, entry.Name())
-                        go copyDir(subDstDir, subSrcDir, n, ch, sema)
+                        n.Add(1)
+                        go walkDir(subDstDir, subSrcDir, n, ch, sema)
                 } else {
 			fileCount++
 			totalSrcSize += entry.Size()
 			srcFile := filepath.Join(srcDir, entry.Name())
 			dstFile := filepath.Join(dstDir, entry.Name())
-			size, unsupport, skip, err := doCopy(dstFile, srcFile)
+			size, unsupport, skip, err := doFileCopy(dstFile, srcFile)
 			totalCopySize += size
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "copy [%s] to [%s] occur error\n", srcFile, dstFile)
@@ -78,9 +86,9 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 			} else if unsupport {
 				unsupportCount++
 			} else {
-				e := copyTimeOwner(dstFile, srcFile)
+				e := copyFileAttribute(dstFile, srcFile)
 				if (e != nil) {
-					fmt.Fprintf(os.Stderr, "copyTimeOwner(%s, %s) error: %v\n", dstFile, srcFile, e)
+					fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
 				}
 			}
 		}
@@ -95,12 +103,11 @@ func copyDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 	dn.errCount = errCount
 	dn.totalSrcSize = totalSrcSize
 	dn.totalCopySize = totalCopySize
-	
         ch <- dn
 }
 
 
-func doCopy(dstFile string, srcFile string) (int64, bool, bool, error) {
+func doFileCopy(dstFile string, srcFile string) (int64, bool, bool, error) {
 	var sfi, dfi	os.FileInfo
 	var err	error 
 	var writtenSize int64
@@ -109,7 +116,8 @@ func doCopy(dstFile string, srcFile string) (int64, bool, bool, error) {
 	sfi, err = os.Lstat(srcFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		logger.Fatal("\t Impossible!, BUG, Quit")
+		logger.Printf("\t Impossible!, BUG, Quit")
+		return 0, false, false, err
 	}
 	mode := sfi.Mode()
 	switch {
@@ -177,7 +185,7 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 	return writtenSize, err
 }
 
-func copyTimeOwner(dst string, src string) error {
+func copyFileAttribute(dst string, src string) error {
 	if fi, err := os.Lstat(src); err == nil {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 			uid := int(st.Uid)
@@ -208,6 +216,11 @@ func copyTimeOwner(dst string, src string) error {
 }
 
 
+/*
+  This code exist a problem, get directory entry and release the lock
+  and then doFileCopy(), it cost much time, and new goroutine can get the lock
+  too many goroutine do fileCopy,  
+
 //var sema = make(chan struct{}, 32)
 func dirents(dir string, sema chan struct{}) []os.FileInfo {
         sema <- struct{}{}
@@ -215,21 +228,30 @@ func dirents(dir string, sema chan struct{}) []os.FileInfo {
 
         entries, err := ioutil.ReadDir(dir)
         if err != nil {
-                log.Printf("%v\n", err)
+                log.Printf("\t %v\n", err)
+                return nil
+        }
+        return entries
+}
+*/
+func dirents(dir string) []os.FileInfo {
+        entries, err := ioutil.ReadDir(dir)
+        if err != nil {
+                log.Printf("\t %v\n", err)
                 return nil
         }
         return entries
 }
 
 const (
-	GOROUTINEWORKER = 8
+	GOROUTINEWORKER = 128
 )
 
 func main() {
 	var goWorker	int
 	var logfile	string
-	flag.IntVar(&goWorker, "gol", GOROUTINEWORKER, "concurrent goroutine worker")
-	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
+	flag.IntVar(&goWorker, "worker", GOROUTINEWORKER, "concurrent goroutine worker")
+	flag.StringVar(&logfile, "logfile", "/tmp/nasCopy.log", "log filename")
 
         flag.Parse()
         args := flag.Args()
@@ -269,7 +291,7 @@ func main() {
         var n sync.WaitGroup
 
 	n.Add(1)
-	go copyDir(absDstDir, absSrcDir, &n, dnChan, sema)
+	go walkDir(absDstDir, absSrcDir, &n, dnChan, sema)
 
         go func() {
                 n.Wait()
@@ -285,9 +307,11 @@ func main() {
 		allUnsupportCount += dn.unsupportCount
 		allSkipCount += dn.skipCount
 		allErrCount += dn.errCount
-		logger.Printf("\t Finish copy Directory['%s'] to ['%s']\n", dn.srcDir, dn.dstDir)
-		logger.Printf("\t\tSummary: File[%d], Dir[%d], TotalSrcSize[%d], TotalCopySize[%d], unsupport[%d], skip[%d], err[%d]\n", dn.fileCount, dn.dirCount, 
-				dn.totalSrcSize, dn.totalCopySize, dn.unsupportCount, dn.skipCount, dn.errCount)
+		if dn.fileCount > 0 {
+			logger.Printf("\t Finish copy Directory['%s'] to ['%s']\n", dn.srcDir, dn.dstDir)
+			logger.Printf("\t\tSummary: File[%d], Dir[%d], TotalSrcSize[%d], TotalCopySize[%d], unsupport[%d], skip[%d], err[%d]\n", dn.fileCount, dn.dirCount, 
+					dn.totalSrcSize, dn.totalCopySize, dn.unsupportCount, dn.skipCount, dn.errCount)
+		}
         }
 	logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
 	logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
