@@ -27,14 +27,14 @@ type DirNode struct {
 	totalCopySize	int64
 }
 
-// log file, default '/tmp/NASCopy.log'
+// log file, default '/tmp/nasCopy.log'
 var logger	*log.Logger
 
 func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode, sema chan struct{}) {
         defer n.Done()
 
 	/* control concurrent walk directory count
-	   default is 128
+	   default is 128 
 	*/
         sema <- struct{}{}
         defer func() { <-sema }()
@@ -53,11 +53,12 @@ func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 				logger.Printf("\t MkdirAll(%s) error: %v", dstDir, err)
 				return
 			}
-			e := copyFileAttribute(dstDir, srcDir)
-			if (e != nil) {
-				fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstDir, srcDir, e)
-				return
-			}
+		}
+		// 
+		e := copyFileAttribute(dstDir, srcDir)
+		if (e != nil) {
+			fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstDir, srcDir, e)
+			return
 		}
 	}
 
@@ -81,15 +82,17 @@ func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 				fmt.Fprintf(os.Stderr, "copy [%s] to [%s] occur error\n", srcFile, dstFile)
 				logger.Printf("\t copy [%s] to [%s] occur error[%v]\n", srcFile, dstFile, err)
 				errCount++
+				continue
 			} else if skip {
 				skipCount++
 			} else if unsupport {
 				unsupportCount++
-			} else {
-				e := copyFileAttribute(dstFile, srcFile)
-				if (e != nil) {
-					fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
-				}
+				continue
+			}
+			e := copyFileAttribute(dstFile, srcFile)
+			if (e != nil) {
+				fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
+				log.Printf("\t copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
 			}
 		}
         }
