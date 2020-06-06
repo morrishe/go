@@ -34,7 +34,7 @@ func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
         defer n.Done()
 
 	/* control concurrent walk directory count
-	   default is 128 
+	   default is 64
 	*/
         sema <- struct{}{}
         defer func() { <-sema }()
@@ -247,7 +247,7 @@ func dirents(dir string) []os.FileInfo {
 }
 
 const (
-	GOROUTINEWORKER = 128
+	GOROUTINEWORKER = 64
 )
 
 func main() {
@@ -290,7 +290,7 @@ func main() {
 	logger.Printf("\t Begin to COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
 
 	sema := make(chan struct{}, goWorker)
-        dnChan := make(chan DirNode)
+        dnChan := make(chan DirNode, goWorker/2)
         var n sync.WaitGroup
 
 	n.Add(1)
@@ -310,10 +310,11 @@ func main() {
 		allUnsupportCount += dn.unsupportCount
 		allSkipCount += dn.skipCount
 		allErrCount += dn.errCount
-		if dn.fileCount > 0 {
-			logger.Printf("\t Finish copy Directory['%s'] to ['%s']\n", dn.srcDir, dn.dstDir)
-			logger.Printf("\t\tSummary: File[%d], Dir[%d], TotalSrcSize[%d], TotalCopySize[%d], unsupport[%d], skip[%d], err[%d]\n", dn.fileCount, dn.dirCount, 
-					dn.totalSrcSize, dn.totalCopySize, dn.unsupportCount, dn.skipCount, dn.errCount)
+		// reduce print log
+		if (allFileCount % 4096 == 0) || (allDirCount % 4096 ==  0) {
+			logger.Printf("\t Current progress: Directorys:[%d], Files: [%d]\n", allDirCount, allFileCount)
+			logger.Printf("\t Current summary: allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n",  
+				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
 		}
         }
 	logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
