@@ -305,7 +305,7 @@ func main() {
         for dn := range dnChan {
 		allTotalSrcSize += dn.totalSrcSize
 		allTotalCopySize += dn.totalCopySize
-		allDirCount += dn.dirCount
+		allDirCount += 1
 		allFileCount += dn.fileCount
 		allUnsupportCount += dn.unsupportCount
 		allSkipCount += dn.skipCount
