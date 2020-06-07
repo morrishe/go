@@ -311,7 +311,7 @@ func main() {
 		allSkipCount += dn.skipCount
 		allErrCount += dn.errCount
 		// reduce print log
-		if (allFileCount % 4096 == 0) || (allDirCount % 4096 ==  0) {
+		if (allDirCount % 1024 ==  0) {
 			logger.Printf("\t Current progress: Directorys:[%d], Files: [%d]\n", allDirCount, allFileCount)
 			logger.Printf("\t Current summary: allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n",  
 				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
