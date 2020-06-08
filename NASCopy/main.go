@@ -54,11 +54,11 @@ func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 				return
 			}
 		}
-		// 
+		// ignore error 
 		e := copyFileAttribute(dstDir, srcDir)
 		if (e != nil) {
-			fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstDir, srcDir, e)
-			return
+			logger.Printf("Ignore it! copyFileAttribute(%s, %s) error: %v\n", dstDir, srcDir, e)
+			//return
 		}
 	}
 
@@ -91,8 +91,7 @@ func walkDir(dstDir string, srcDir string,  n *sync.WaitGroup, ch chan<- DirNode
 			}
 			e := copyFileAttribute(dstFile, srcFile)
 			if (e != nil) {
-				fmt.Fprintf(os.Stderr, "copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
-				log.Printf("\t copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
+				logger.Printf("\t Ignore it: copyFileAttribute(%s, %s) error: %v\n", dstFile, srcFile, e)
 			}
 		}
         }
