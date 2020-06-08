@@ -45,7 +45,7 @@ var logger	*log.Logger
 func dirents(dir string) []os.FileInfo {
         entries, err := ioutil.ReadDir(dir)
         if err != nil {
-                log.Printf("\t %v\n", err)
+                logger.Printf("\t %v\n", err)
                 return nil
         }
         return entries
@@ -105,17 +105,17 @@ func copyEntryAttribute(dst string, src string) error {
 			mode := fi.Mode()
 			if mode&os.ModeSymlink == 0 { //ignore symlink
 				if e := os.Chmod(dst, mode); e != nil {
-					logger.Printf("\t chmod(%s, %v) error\n", dst, mode)
-					return e 
+					//logger.Printf("\t chmod(%s, %v) error\n", dst, mode)
+					//return e 
 				}
 				if e := os.Chtimes(dst, atime, mtime); e != nil {
-					logger.Printf("\t os.Chtimes(%s, %v, %v) error\n", dst, atime, mtime)
-					return e 
+					//logger.Printf("\t os.Chtimes(%s, %v, %v) error\n", dst, atime, mtime)
+					//return e 
 				}
 			}
 			if e := os.Lchown(dst, uid, gid); e != nil {
-				logger.Printf("\t chown(%s, %d, %d) error\n", dst, uid, gid)
-				return e 
+				//logger.Printf("\t chown(%s, %d, %d) error\n", dst, uid, gid)
+				//return e 
 			}
 		}
 	}
@@ -187,7 +187,7 @@ func doFileCopy(dstFile string, srcFile string, nfile *sync.WaitGroup, fnChan ch
 		} else {
 			err = os.Symlink(link, dstFile)
 			if err != nil {
-				logger.Printf("\t os.Symlink('%s') error n", srcFile)
+				logger.Printf("\t os.Symlink('%s', '%s') error %v", srcFile, dstFile, err)
 				fn.haveErr = true
 			} else { 
 				fn.size = int64(len(link))
@@ -220,12 +220,12 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 	var writtenSize int64
 
 	if sf, err = os.Open(srcFile); err != nil {
-		fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", srcFile, err)
+		logger.Printf("\t open '%s' error: %v\n", srcFile, err)
 		return 0, err 
 	}
 	defer sf.Close()
 	if df, err = os.Create(dstFile); err != nil {
-		fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", dstFile, err)
+		logger.Printf("\t open '%s' error: %v\n", dstFile, err)
 		return 0, err
 	}
 	defer df.Close()
@@ -307,7 +307,7 @@ func main() {
 		close(fileChan)
 	}()
 
-	var totalSize, totalCopySize, totalDirCount, totalFileCount	int64
+	var totalSize, totalCopySize, totalDirCount, totalFileCount, totalCopyFileCount	int64
 	var dirChanClose, fileChanClose	bool
         for {
 		select {
@@ -318,15 +318,20 @@ func main() {
 				totalDirCount++
 				totalSize += dn.totalSize
 				totalFileCount += dn.subFileCount
-				logger.Printf("\t Todo: walk directorys[%d], filesize[%d], fileCount[%d] ", totalDirCount, totalSize, totalFileCount)
+				if totalDirCount % 1024 == 0 {
+					logger.Printf("\t Todo: walk directorys[%d], filesize[%d], fileCount[%d] ", totalDirCount, totalSize, totalFileCount)
+				}
 			}
 
 		case fn, fnOk := <-fileChan:
 			if !fnOk {
 				fileChanClose = true
 			} else {
+				totalCopyFileCount++
 				totalCopySize += fn.copySize
-				logger.Printf("\t Current progress: CopySize[%d]bytes", totalCopySize)
+				if totalCopyFileCount % 1024 == 0 {
+					logger.Printf("\t Current progress: CopyFileCount[%d], CopySize[%d]bytes", totalCopyFileCount, totalCopySize)
+				}
 			}
 		}
 		if (dirChanClose && fileChanClose) {
