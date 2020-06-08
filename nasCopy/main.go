@@ -33,8 +33,9 @@ type FileNode struct {
 }
 
 type FileEntry struct {
-	absSrcName	string
-	absDstName	string
+	srcDir	string
+	dstDir	string
+	name	string
 }	
 
 // log file, default '/tmp/nasCopy.log'
@@ -60,8 +61,8 @@ func walkDir(dstDir string, srcDir string,  ndir *sync.WaitGroup, dirCh chan<- D
         defer func() { <-sema }()
 
 	/* ignore error */
-	os.MkdirAll(dstDir, 0755)
-        copyEntryAttribute(dstDir, srcDir)
+	//os.MkdirAll(dstDir, 0755)
+        //copyEntryAttribute(dstDir, srcDir)
 
 	entrys := dirents(srcDir)
 	var dirCount, fileCount, totalSize 	int64
@@ -77,8 +78,9 @@ func walkDir(dstDir string, srcDir string,  ndir *sync.WaitGroup, dirCh chan<- D
 			fileCount++
 			totalSize += entry.Size()
 			var fe FileEntry
-			fe.absSrcName = filepath.Join(srcDir, entry.Name())
-			fe.absDstName = filepath.Join(dstDir, entry.Name())
+			fe.name = entry.Name()
+			fe.dstDir = dstDir
+			fe.srcDir = srcDir
 			fileEntryCh <- fe
 		}
         }
@@ -126,11 +128,15 @@ func getFileAndCopy(nfile *sync.WaitGroup, fec chan FileEntry, fn chan<- FileNod
 
 
 	for fe := range fec {
-		srcFile := fe.absSrcName
-		dstFile := fe.absDstName
+		absSrcFile := filepath.Join(fe.srcDir, fe.name)
+		absDstFile := filepath.Join(fe.dstDir, fe.name)
+
+		/* ignore error */
+		os.MkdirAll(fe.dstDir, 0755)
+        	copyEntryAttribute(fe.dstDir, fe.srcDir)
 
 		nfile.Add(1)
-		go doFileCopy(dstFile, srcFile, nfile, fn, fileSema)
+		go doFileCopy(absDstFile, absSrcFile, nfile, fn, fileSema)
 	}
 }
 
@@ -200,6 +206,7 @@ func doFileCopy(dstFile string, srcFile string, nfile *sync.WaitGroup, fnChan ch
 				fn.haveErr = true
 			} else {
 				fn.copySize = wtSize
+        			copyEntryAttribute(dstFile, srcFile)
 			}
 		}
 		fnChan <- fn
