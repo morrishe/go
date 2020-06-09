@@ -35,7 +35,7 @@ type FileNode struct {
 // log file, default '/tmp/nasCopy.log'
 var logger	*log.Logger
 
-func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, nFile *sync.WaitGroup, ch chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
+func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, ch chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
         defer nDir.Done()
 
 	/* control concurrent walk directory count
@@ -68,13 +68,14 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, nFile *sync.Wa
 
 	entrys := dirents(srcDir)
 	var dirCount, fileCount, totalSrcSize	int64
+	var nFile sync.WaitGroup
         for _, entry := range entrys {
                 if entry.IsDir() {
 			dirCount++
                         subSrcDir := filepath.Join(srcDir, entry.Name())
 			subDstDir := filepath.Join(dstDir, entry.Name())
                         nDir.Add(1)
-                        go walkDir(subDstDir, subSrcDir, nDir, nFile, ch, dirSema, fileSema)
+                        go walkDir(subDstDir, subSrcDir, nDir, ch, dirSema, fileSema)
                 } else {
 			fileCount++
 			totalSrcSize += entry.Size()
@@ -82,8 +83,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, nFile *sync.Wa
 			absDstFile := filepath.Join(dstDir, entry.Name())
 			nFile.Add(1)
 			logger.Println(absSrcFile, absDstFile)
-			go doFileCopy(absDstFile, absSrcFile, nFile, fileSema)	
-		
+			go doFileCopy(absDstFile, absSrcFile, &nFile, fileSema)	
 		}
 	}
 
@@ -276,10 +276,10 @@ func main() {
 	dirSema := make(chan struct{}, goWorker)
 	fileSema := make(chan struct{}, goWorker)
         dnChan := make(chan DirNode, goWorker/2)
-        var nDir,nFile sync.WaitGroup
+        var nDir sync.WaitGroup
 
 	nDir.Add(1)
-	go walkDir(absDstDir, absSrcDir, &nDir, &nFile, dnChan, dirSema, fileSema)
+	go walkDir(absDstDir, absSrcDir, &nDir, dnChan, dirSema, fileSema)
 
         go func() {
                 nDir.Wait()
