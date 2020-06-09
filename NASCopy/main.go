@@ -62,7 +62,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- D
 		os.MkdirAll(dstDir, 0755)
 	}
 	// copy the directory attribute, and ignore error 
-	copyFileAttribute(dstDir, srcDir)
+	//copyFileAttribute(dstDir, srcDir)
 
 	entrys := dirents(srcDir)
 	var dirCount, fileCount, totalSrcSize	int64
@@ -119,6 +119,11 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- D
 	dn.errCount = errCount
 	
         dirCh <- dn
+
+	/* copy the directory attribute, and ignore error
+         * because when copy file to this directory, the directory mod_time is the time which file be writted
+         */
+	copyFileAttribute(dstDir, srcDir)
 }
 
 
@@ -195,6 +200,8 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode, nFile *s
 			return
 		} else {
 			//logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
+			fn.skip = true
+			fileCh <- fn
 		}
 	}
 }
@@ -276,7 +283,7 @@ func dirents(dir string) []os.FileInfo {
 
 const (
 	DIRWORKERS = 64
-	FILEWORKERS = 1024
+	FILEWORKERS = 512
 )
 
 func main() {
@@ -346,21 +353,23 @@ func main() {
 
 		if (allDirCount % 1024 ==  0) {
 			logger.Printf("\t Current chan: dnChan[%d]\n", len(dnChan))
-			logger.Printf("\t Current progress: Directorys:[%d], Files: [%d], allTotalSrcSize: [%d]\n", allDirCount, allFileCount, allTotalSrcSize)
-			logger.Printf("\t Current summary: allCopyFileCount[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n",  
+			logger.Printf("\t Current progress: Directorys: [%d], Files: [%d], allTotalSrcSize: [%d] bytes\n", allDirCount, allFileCount, allTotalSrcSize)
+			logger.Printf("\t Current summary: allCopyFileCount: [%d], allTotalCopySize: [%d] bytes, allUnsupport: [%d], allSkip: [%d], allErr: [%d]\n",  
 				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
 		}
         }
 	logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
 	logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-	logger.Printf("\t Summary: allFile[%d], allDir[%d], allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n", allFileCount, allDirCount, 
-				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+	logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes\n", allDirCount, allFileCount, allTotalSrcSize)
+	logger.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n",  
+				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
 	logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 	logger.Printf("\t ############################### END #############################################################\n\n\n")
 
 	fmt.Printf("Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
 	fmt.Printf("----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-	fmt.Printf("Summary: allFile[%d], allDir[%d], allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n", allFileCount, allDirCount, 
-				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+	fmt.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes\n", allDirCount, allFileCount, allTotalSrcSize)
+	fmt.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n",  
+				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
 	fmt.Printf("----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 }
