@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-
 type DirNode struct {
 	srcDir		string
 	dstDir		string
@@ -28,6 +27,16 @@ type DirNode struct {
 }
 
 type FileNode struct {
+	srcFile		string
+	dstFile		string
+	unsupport	bool
+	skip		bool
+	err		bool
+	srcSize		int64
+	copySize	int64
+}
+
+type FilePair struct {
 	absSrcFile		string
 	absDstFile		string
 }
@@ -35,64 +44,72 @@ type FileNode struct {
 // log file, default '/tmp/nasCopy.log'
 var logger	*log.Logger
 
-func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, ch chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
+func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
         defer nDir.Done()
 
-	/* control concurrent walk directory count
-	   default is 64
-	*/
         dirSema <- struct{}{}
         defer func() { <-dirSema }()
 
 	_, err := os.Lstat(srcDir)
 	if os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "srcDir['%s'] is not exists", srcDir)
-		return
-	} else {
-		if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
-			err := os.MkdirAll(dstDir, 0755)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "MkdirAll(%s) error: %v", dstDir, err)
-				logger.Printf("\t MkdirAll(%s) error: %v", dstDir, err)
-				return
-			}
-		}
-		// ignore error 
-		copyFileAttribute(dstDir, srcDir)
-		//e := copyFileAttribute(dstDir, srcDir)
-		//if (e != nil) {
-		//	logger.Printf("Ignore it! copyFileAttribute(%s, %s) error: %v\n", dstDir, srcDir, e)
-		//	return
-		//}
+		fmt.Fprintf(os.Stderr, "Critital BUG: srcDir['%s'] is not exists", srcDir)
+		os.Exit(2)
 	}
+	/* if dstDir isnot exists, create is */
+	if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
+		//Ignore error
+		os.MkdirAll(dstDir, 0755)
+	}
+	// copy the directory attribute, and ignore error 
+	copyFileAttribute(dstDir, srcDir)
 
 	entrys := dirents(srcDir)
 	var dirCount, fileCount, totalSrcSize	int64
 	var nFile sync.WaitGroup
-	var fn FileNode
-	var fnList = make([]FileNode, 0)
+	var fp FilePair
+	var fpList = make([]FilePair, 0)
         for _, entry := range entrys {
                 if entry.IsDir() {
 			dirCount++
                         subSrcDir := filepath.Join(srcDir, entry.Name())
 			subDstDir := filepath.Join(dstDir, entry.Name())
                         nDir.Add(1)
-                        go walkDir(subDstDir, subSrcDir, nDir, ch, dirSema, fileSema)
+                        go walkDir(subDstDir, subSrcDir, nDir, dirCh, dirSema, fileSema)
                 } else {
 			fileCount++
 			totalSrcSize += entry.Size()
-			fn.absSrcFile = filepath.Join(srcDir, entry.Name())
-			fn.absDstFile = filepath.Join(dstDir, entry.Name())
-			fnList = append(fnList, fn)
+			fp.absSrcFile = filepath.Join(srcDir, entry.Name())
+			fp.absDstFile = filepath.Join(dstDir, entry.Name())
+			fpList = append(fpList, fp)
 		}
 	}
-
-	for _, fn = range fnList {
+	var mu sync.Mutex
+	var fileChan = make(chan FileNode, DIRWORKERS)
+	for _, fp = range fpList {
 		nFile.Add(1)
-		go doFileCopy(fn.absDstFile, fn.absSrcFile, &nFile, fileSema)	
+		go doFileCopy(fp.absDstFile, fp.absSrcFile, fileCh, &nFile, fileSema)	
 	}
-        nFile.Wait()
+	go func() {
+		mu.Lock()
+        	nFile.Wait()
+		mu.Unlock()
+	}
+
+	var skipCount, errCount, unsupportCount, totalCopySize int64
+	for fn := range fileChan {
+		switch {
+		case fn.skip:	skipCount++
+		case fn.err:	errCount++	
+		case fn.unsupport:
+			unsupportCount++
+		case fn.copySize:
+			totalCopySize += fn.copySize
+	}
 			
+		
+
+	mu.Lock()
+
 	var dn DirNode
 	dn.srcDir = srcDir
 	dn.dstDir = dstDir
@@ -235,13 +252,16 @@ func dirents(dir string) []os.FileInfo {
 }
 
 const (
-	GOROUTINEWORKER = 64
+	DIRWORKERS = 64
+	FILEWORKERS = 1024
 )
 
 func main() {
-	var goWorker	int
+	var dirWorkers	int
+	var fileWorkers	int
 	var logfile	string
-	flag.IntVar(&goWorker, "worker", GOROUTINEWORKER, "concurrent goroutine worker")
+	flag.IntVar(&dirWorkers, "walk directory workers", DIRWORKERS, "concurrent walk directory workers")
+	flag.IntVar(&fileWorkers, "file copy workers", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/nasCopy.log", "log filename")
 
         flag.Parse()
@@ -277,9 +297,9 @@ func main() {
 	logger.Printf("\t #############################  BEGIN  #########################################################\n")
 	logger.Printf("\t Begin to COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
 
-	dirSema := make(chan struct{}, goWorker)
-	fileSema := make(chan struct{}, goWorker)
-        dnChan := make(chan DirNode, goWorker/2)
+	dirSema := make(chan struct{}, dirWorkers)
+	fileSema := make(chan struct{}, fileWorkers)
+        dnChan := make(chan DirNode, dirWorker)
         var nDir sync.WaitGroup
 
 	nDir.Add(1)
@@ -299,8 +319,9 @@ func main() {
 		allUnsupportCount += dn.unsupportCount
 		allSkipCount += dn.skipCount
 		allErrCount += dn.errCount
-		// reduce print log
+
 		if (allDirCount % 1024 ==  0) {
+			logger.Printf("\t Current chan: dnChan[%d]\n", len(dnChan))
 			logger.Printf("\t Current progress: Directorys:[%d], Files: [%d]\n", allDirCount, allFileCount)
 			logger.Printf("\t Current summary: allTotalSrcSize[%d], allTotalCopySize[%d], allUnsupport[%d], allSkip[%d], allErr[%d]\n",  
 				allTotalSrcSize, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
