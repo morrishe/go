@@ -69,6 +69,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, ch chan<- DirN
 	entrys := dirents(srcDir)
 	var dirCount, fileCount, totalSrcSize	int64
 	var nFile sync.WaitGroup
+	var fn FileNode
+	var fnList = make([]FileNode, 0)
         for _, entry := range entrys {
                 if entry.IsDir() {
 			dirCount++
@@ -79,14 +81,16 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, ch chan<- DirN
                 } else {
 			fileCount++
 			totalSrcSize += entry.Size()
-			absSrcFile := filepath.Join(srcDir, entry.Name())
-			absDstFile := filepath.Join(dstDir, entry.Name())
-			nFile.Add(1)
-			logger.Println(absSrcFile, absDstFile)
-			go doFileCopy(absDstFile, absSrcFile, &nFile, fileSema)	
+			fn.absSrcFile = filepath.Join(srcDir, entry.Name())
+			fn.absDstFile = filepath.Join(dstDir, entry.Name())
+			fnList = append(fnList, fn)
 		}
 	}
 
+	for _, fn = range fnList {
+		nFile.Add(1)
+		go doFileCopy(fn.absDstFile, fn.absSrcFile, &nFile, fileSema)	
+	}
         nFile.Wait()
 			
 	var dn DirNode
