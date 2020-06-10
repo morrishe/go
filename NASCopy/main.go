@@ -42,7 +42,7 @@ type FilePair struct {
 	absDstFile		string
 }
 
-// log file, default '/tmp/nasCopy.log'
+// log file, default '/tmp/NASCopy.log'
 var logger	*log.Logger
 
 func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
@@ -292,7 +292,7 @@ func main() {
 	var logfile	string
 	flag.IntVar(&dirWorkers, "direr", DIRWORKERS, "concurrent walk directory workers")
 	flag.IntVar(&fileWorkers, "filer", FILEWORKERS, "concurrent file copy workers")
-	flag.StringVar(&logfile, "logfile", "/tmp/nasCopy.log", "log filename")
+	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
 
         flag.Parse()
         args := flag.Args()
