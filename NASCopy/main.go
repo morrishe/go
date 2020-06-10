@@ -42,7 +42,15 @@ type FilePair struct {
 	absDstFile		string
 }
 
+const (
+	DIRWORKERS = 8
+	FILEWORKERS = 128
+)
+
+var dirWorkers	int
+var fileWorkers	int
 // log file, default '/tmp/NASCopy.log'
+var logfile	string
 var logger	*log.Logger
 
 func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
@@ -70,6 +78,9 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- D
 	var fp FilePair
 	var fpList = make([]FilePair, 0)
         for _, entry := range entrys {
+		if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
+                        continue
+                }
                 if entry.IsDir() {
 			dirCount++
                         subSrcDir := filepath.Join(srcDir, entry.Name())
@@ -84,7 +95,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- D
 			fpList = append(fpList, fp)
 		}
 	}
-	var fileChan = make(chan FileNode, DIRWORKERS)
+	var fileChan = make(chan FileNode, fileWorkers)
 	for _, fp = range fpList {
 		nFile.Add(1)
 		go doFileCopy(fp.absDstFile, fp.absSrcFile, fileChan, &nFile, fileSema)	
@@ -281,15 +292,7 @@ func dirents(dir string) []os.FileInfo {
         return entries
 }
 
-const (
-	DIRWORKERS = 8
-	FILEWORKERS = 128
-)
-
 func main() {
-	var dirWorkers	int
-	var fileWorkers	int
-	var logfile	string
 	flag.IntVar(&dirWorkers, "direr", DIRWORKERS, "concurrent walk directory workers")
 	flag.IntVar(&fileWorkers, "filer", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
