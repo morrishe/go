@@ -43,8 +43,8 @@ type FilePair struct {
 }
 
 const (
-	DIRWORKERS = 16 
-	FILEWORKERS = 128
+	DIRWORKERS = 64 
+	FILEWORKERS = 256
 )
 
 var dirWorkers	int
@@ -63,7 +63,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- D
 	_, err := os.Lstat(srcDir)
 	if os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "Critital BUG: srcDir['%s'] is not exists", srcDir)
-		os.Exit(2)
+		//os.Exit(2)
+		return
 	}
 	/* if dstDir isnot exists, create is */
 	if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
@@ -153,7 +154,8 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode, nFile *s
 	if sfi, err = os.Lstat(srcFile); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "ERROR: %s, %v\n", srcFile, err)
 		logger.Printf("\t Impossible!, BUG, Quit")
-		os.Exit(2)
+		//os.Exit(2)
+		return
 	}
 
 	fn.srcFile = srcFile
@@ -294,8 +296,8 @@ func dirents(dir string) []os.FileInfo {
 }
 
 func main() {
-	flag.IntVar(&dirWorkers, "direr", DIRWORKERS, "concurrent walk directory workers")
-	flag.IntVar(&fileWorkers, "filer", FILEWORKERS, "concurrent file copy workers")
+	flag.IntVar(&dirWorkers, "dirworker", DIRWORKERS, "concurrent walk directory workers")
+	flag.IntVar(&fileWorkers, "fileworker", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
 	flag.BoolVar(&verbose, "verbose", false, "verbose message")
 
