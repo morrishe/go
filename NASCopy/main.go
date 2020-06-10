@@ -43,7 +43,7 @@ type FilePair struct {
 }
 
 const (
-	DIRWORKERS = 8
+	DIRWORKERS = 16 
 	FILEWORKERS = 128
 )
 
@@ -52,6 +52,7 @@ var fileWorkers	int
 // log file, default '/tmp/NASCopy.log'
 var logfile	string
 var logger	*log.Logger
+var verbose	bool
 
 func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dirCh chan<- DirNode, dirSema chan struct{}, fileSema chan struct{}) {
         defer nDir.Done()
@@ -296,6 +297,7 @@ func main() {
 	flag.IntVar(&dirWorkers, "direr", DIRWORKERS, "concurrent walk directory workers")
 	flag.IntVar(&fileWorkers, "filer", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
+	flag.BoolVar(&verbose, "verbose", false, "verbose message")
 
         flag.Parse()
         args := flag.Args()
@@ -354,11 +356,15 @@ func main() {
 		allSkipCount += dn.skipCount
 		allErrCount += dn.errCount
 
-		logger.Printf("\t Current Direr: [%d], Filer: [%d],  CopyDir: [%d] \n", len(dirSema), len(fileSema), allDirCount)
-		logger.Printf("\t Finish Copy Directory ['%s'] to ['%s'], fileCount: [%d], copyFileCount: [%d], skipCount: [%d], unsupportCount: [%d], errCount: [%d]\n",
-				dn.srcDir, dn.dstDir, dn.fileCount, dn.copyFileCount, dn.skipCount, dn.unsupportCount, dn.errCount);
+		if dn.fileCount > 0 {
+			logger.Printf("\t Current DirWorker: [%d], FileWorker: [%d],  Finished: Dirs: [%d],  Files: [%d], CopyFile: [%d]\n", len(dirSema), len(fileSema), allDirCount, allFileCount, allCopyFileCount)
+			if verbose {
+				logger.Printf("\t Finish Copy Directory ['%s'] to ['%s'], fileCount: [%d], copyFileCount: [%d], skipCount: [%d], unsupportCount: [%d], errCount: [%d]\n",
+					dn.srcDir, dn.dstDir, dn.fileCount, dn.copyFileCount, dn.skipCount, dn.unsupportCount, dn.errCount);
+			}
+		}
 
-		if (allDirCount % 1024 ==  0) {
+		if allDirCount % 1024 == 0 {
 			logger.Printf("\t Current progress: Directorys: [%d], Files: [%d], allTotalSrcSize: [%d] bytes\n", allDirCount, allFileCount, allTotalSrcSize)
 			logger.Printf("\t Current summary: allCopyFileCount: [%d], allTotalCopySize: [%d] bytes, allUnsupport: [%d], allSkip: [%d], allErr: [%d]\n",  
 				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
