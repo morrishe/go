@@ -282,16 +282,16 @@ func dirents(dir string) []os.FileInfo {
 }
 
 const (
-	DIRWORKERS = 64
-	FILEWORKERS = 512
+	DIRWORKERS = 8
+	FILEWORKERS = 128
 )
 
 func main() {
 	var dirWorkers	int
 	var fileWorkers	int
 	var logfile	string
-	flag.IntVar(&dirWorkers, "walk directory workers", DIRWORKERS, "concurrent walk directory workers")
-	flag.IntVar(&fileWorkers, "file copy workers", FILEWORKERS, "concurrent file copy workers")
+	flag.IntVar(&dirWorkers, "direr", DIRWORKERS, "concurrent walk directory workers")
+	flag.IntVar(&fileWorkers, "filer", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/nasCopy.log", "log filename")
 
         flag.Parse()
@@ -351,8 +351,11 @@ func main() {
 		allSkipCount += dn.skipCount
 		allErrCount += dn.errCount
 
+		logger.Printf("\t Current Direr: [%d], Filer: [%d],  CopyDir: [%d] \n", len(dirSema), len(fileSema), allDirCount)
+		logger.Printf("\t Finish Copy Directory ['%s'] to ['%s'], fileCount: [%d], copyFileCount: [%d], skipCount: [%d], unsupportCount: [%d], errCount: [%d]\n",
+				dn.srcDir, dn.dstDir, dn.fileCount, dn.copyFileCount, dn.skipCount, dn.unsupportCount, dn.errCount);
+
 		if (allDirCount % 1024 ==  0) {
-			logger.Printf("\t Current chan: dnChan[%d]\n", len(dnChan))
 			logger.Printf("\t Current progress: Directorys: [%d], Files: [%d], allTotalSrcSize: [%d] bytes\n", allDirCount, allFileCount, allTotalSrcSize)
 			logger.Printf("\t Current summary: allCopyFileCount: [%d], allTotalCopySize: [%d] bytes, allUnsupport: [%d], allSkip: [%d], allErr: [%d]\n",  
 				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
