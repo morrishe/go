@@ -113,9 +113,9 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode) {
 		logger.Printf("\t '%s' is not exists, continue... ")
 		return
 	}
-
-	logger.Printf("\t '%s' --->  '%s'", srcFile, dstFile)
-
+	if verbose {
+		logger.Printf("\t '%s' -> '%s'", srcFile, dstFile)
+	}
 	fn.srcFile = srcFile
 	fn.dstFile = dstFile
 	fn.srcSize = sfi.Size()
@@ -293,7 +293,7 @@ func main() {
 				for _, fp := range fpList {
 					doFileCopy(fp.dstFile, fp.srcFile, fileChan) 
 				}
-				copyFileAttribute(dstDir, srcDir)
+				copyFileAttribute(dp.dstDir, dp.srcDir)
 			}()
 		}
 	}
