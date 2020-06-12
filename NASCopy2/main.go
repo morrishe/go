@@ -87,7 +87,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
                 } else {
 			var fp FilePair
 			fp.srcFile = filepath.Join(srcDir, entry.Name())
-			fp.dstFile = filepath.Join(srcDir, entry.Name())
+			fp.dstFile = filepath.Join(dstDir, entry.Name())
 			fpList = append(fpList, fp)
 		}
 	}
@@ -113,6 +113,8 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode) {
 		logger.Printf("\t '%s' is not exists, continue... ")
 		return
 	}
+
+	logger.Printf("\t '%s' --->  '%s'", srcFile, dstFile)
 
 	fn.srcFile = srcFile
 	fn.dstFile = dstFile
@@ -303,7 +305,7 @@ func main() {
 	var i	int64
 	for _  = range fileChan {
 		i++
-		logger.Printf("\t Receive %d files\n")
+		logger.Printf("\t Receive %d files\n", i )
 	}
 
 	logger.Printf("\t Finished COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
