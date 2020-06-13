@@ -46,6 +46,7 @@ type FileNode struct {
 const (
 	DIRWORKERS = 128
 	FILEWORKERS = 512
+	READDIRCOUNT = 4096
 )
 
 var dirWorkers	int
@@ -54,6 +55,7 @@ var fileWorkers	int
 var logfile	string
 var logger	*log.Logger
 var verbose	int
+var readdirCount	int
 
 /*  old readdir method
 func dirents(dir string) []os.FileInfo {
@@ -80,11 +82,10 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 
 	var fpList = make([]FilePair, 0)
 	var dirCount, fileCount, totalSize int64
-	const READCOUNT = 4096
 	for {
-		entrys, err := fp.Readdir(READCOUNT)
+		entrys, err := fp.Readdir(readdirCount)
 		if err != nil && err != io.EOF {
-			logger.Printf("\t (*File).Readdir(%d) error: %v\n", READCOUNT, err)
+			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
 			return
 		} 
 		if err == io.EOF && len(entrys) == 0 {
@@ -263,6 +264,7 @@ func main() {
 	flag.IntVar(&fileWorkers, "fileworker", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
 	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 null message, 1 for dir, >=2 for dir and files")
+	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
 
         flag.Parse()
         args := flag.Args()
