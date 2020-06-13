@@ -44,8 +44,8 @@ type FileNode struct {
 }
 
 const (
-	DIRWORKERS = 64 
-	FILEWORKERS = 256
+	DIRWORKERS = 128
+	FILEWORKERS = 1024
 )
 
 var dirWorkers	int
@@ -274,6 +274,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	startTime := time.Now().Unix()
 	logger.Printf("\t #############################  BEGIN  #########################################################\n")
 	logger.Printf("\t Begin to COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
 
@@ -301,7 +302,7 @@ func main() {
 					fileSema <- struct{}{}
 					defer func() { <-fileSema }()
 					var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
-					logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d], fileWorkers:[%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), len(fileSema))
+					logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
 					if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
 						os.MkdirAll(dp.dstDir, 0755)
 					}
@@ -328,8 +329,17 @@ func main() {
 		allUnsupportCount += dp.unsupportCount
 		allSkipCount += dp.skipCount
 		allErrCount += dp.errCount
-		if allFileCount % 1024 == 0 {
-        		logger.Printf("\t CURRENT PROGRESS: [%d] has been check&copy\n", allFileCount)
+		timeElasped := time.Now().Unix() - startTime
+		var speed int64
+		if timeElasped > 0 {
+			speed = allFileCount / timeElasped
+		}
+		if dp.copyFileCount > 0 {
+        		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
+        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes,  dpChan:[%d/%d], speeds[%d/s]\n", allFileCount, allTotalSize, len(dpChan), fileWorkers, speed)
+        		logger.Printf("\t           allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n",
+				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+        		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
 	}
         logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
