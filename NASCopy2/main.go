@@ -328,6 +328,9 @@ func main() {
 		allUnsupportCount += dp.unsupportCount
 		allSkipCount += dp.skipCount
 		allErrCount += dp.errCount
+		if allFileCount % 1024 == 0 {
+        		logger.Printf("\t CURRENT PROGRESS: [%d] has been check&copy\n", allFileCount)
+		}
 	}
         logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
