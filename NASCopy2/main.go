@@ -107,7 +107,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 
 func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirPair {
 	for _, fp := range fpList {
-		fn := doFileCopy(dp.dstDir, dp.srcDir, fp.dstFile, fp.srcFile)
+		fn := doFileCopy(fp.dstFile, fp.srcFile)
 		switch {
 		case fn.unsupport: dp.unsupportCount++
 		case fn.skip:	dp.skipCount++
@@ -121,7 +121,7 @@ func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirP
 	return dp
 }
 
-func doFileCopy(dstDir, srcDir, dstFile, srcFile string) FileNode {
+func doFileCopy(dstFile, srcFile string) FileNode {
 	var sfi, dfi	os.FileInfo
 	var err	error 
 	var isSymlink, isRegular, isUnsupport	 bool
@@ -198,12 +198,12 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 	var writtenSize int64
 
 	if sf, err = os.Open(srcFile); err != nil {
-		fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", srcFile, err)
+		fmt.Fprintf(os.Stderr, "os.Open('%s') error: %v\n", srcFile, err)
 		return 0, err 
 	}
 	defer sf.Close()
 	if df, err = os.Create(dstFile); err != nil {
-		fmt.Fprintf(os.Stderr, "open '%s' error: %v\n", dstFile, err)
+		fmt.Fprintf(os.Stderr, "os.Create('%s') error: %v\n", dstFile, err)
 		return 0, err
 	}
 	defer df.Close()
@@ -304,7 +304,7 @@ func main() {
 				if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
 					os.MkdirAll(dp.dstDir, 0755)
 				}
-				copyFileAttribute(dp.dstDir, dp.srcDir)
+				//copyFileAttribute(dp.dstDir, dp.srcDir)
 				dp = doOneDirFileCopy(dp, fpList, dpChan)
 				copyFileAttribute(dp.dstDir, dp.srcDir)
 				logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
