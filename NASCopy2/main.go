@@ -17,19 +17,14 @@ import (
 type DirPair struct {
         srcDir          string
         dstDir          string
-}
-
-type DirNode struct {
-        srcDir          string
-        dstDir          string
-        fileCount       int64
-        copyFileCount   int64
-        dirCount        int64
-        unsupportCount  int64
-        skipCount       int64
-        errCount        int64
-        totalSrcSize    int64
-        totalCopySize   int64
+	fileCount	int64
+	copyFileCount	int64
+	dirCount	int64
+	totalSize	int64
+	totalCopySize	int64
+	unsupportCount	int64
+	skipCount	int64
+	errCount	int64
 }
 
 type FilePair struct {
@@ -57,7 +52,7 @@ var fileWorkers	int
 // log file, default '/tmp/NASCopy.log'
 var logfile	string
 var logger	*log.Logger
-var verbose	bool
+var verbose	int
 
 func dirents(dir string) []os.FileInfo {
         entries, err := ioutil.ReadDir(dir)
@@ -75,16 +70,20 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 
 	entrys := dirents(srcDir)
 	var fpList = make([]FilePair, 0)
+	var dirCount, fileCount, totalSize int64
         for _, entry := range entrys {
 		if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
                         continue
                 }
                 if entry.IsDir() {
+			dirCount++
                         subSrcDir := filepath.Join(srcDir, entry.Name())
 			subDstDir := filepath.Join(dstDir, entry.Name())
                         nDir.Add(1)
                         go walkDir(subDstDir, subSrcDir, nDir, dfPairChan, dirSema)
                 } else {
+			fileCount++
+			totalSize += entry.Size()
 			var fp FilePair
 			fp.srcFile = filepath.Join(srcDir, entry.Name())
 			fp.dstFile = filepath.Join(dstDir, entry.Name())
@@ -95,6 +94,9 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 	var dp	DirPair
 	dp.srcDir = srcDir
 	dp.dstDir = dstDir
+	dp.totalSize = totalSize
+	dp.dirCount = dirCount
+	dp.fileCount = fileCount
 
 	dfPair := make(map[DirPair][]FilePair)
 	dfPair[dp] = fpList
@@ -102,8 +104,23 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 	dfPairChan <- dfPair
 }
 
+func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) {
+	for _, fp := range fpList {
+		fn := doFileCopy(dp.dstDir, dp.srcDir, fp.dstFile, fp.srcFile)
+		switch {
+		case fn.unsupport: dp.unsupportCount++
+		case fn.skip:	dp.skipCount++
+		case fn.err:	dp.errCount++
+		default:
+			dp.totalCopySize += fn.copySize
+			dp.copyFileCount++
+		}
+	}
+	dpChan <- dp
 
-func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode) {
+}
+
+func doFileCopy(dstDir, srcDir, dstFile, srcFile string) FileNode {
 	var sfi, dfi	os.FileInfo
 	var err	error 
 	var isSymlink, isRegular, isUnsupport	 bool
@@ -111,9 +128,9 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode) {
 
 	if sfi, err = os.Lstat(srcFile); os.IsNotExist(err) {
 		logger.Printf("\t '%s' is not exists, continue... ")
-		return
+		return fn
 	}
-	if verbose {
+	if verbose >= 1 {
 		logger.Printf("\t '%s' -> '%s'", srcFile, dstFile)
 	}
 	fn.srcFile = srcFile
@@ -132,28 +149,24 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode) {
 
 	if isUnsupport {
 		fn.unsupport = true
-		fileCh <- fn
-		return
+		return fn
 	}
 	if isSymlink { //symblink file
 		os.Remove(dstFile) // ignore error
 		if link, err := os.Readlink(srcFile); err != nil {
 			logger.Printf("\t os.Readlink('%s') error n", srcFile)
 			fn.err = true
-			fileCh <- fn
-			return
+			return fn
 		} else {
 			err = os.Symlink(link, dstFile)
 			if err != nil {
 				logger.Printf("\t os.Symlink('%s') error n", srcFile)
 				fn.err = true
-				fileCh <- fn
-				return
+				return fn
 			}
 			copyFileAttribute(dstFile, srcFile)
 			fn.copySize = int64(len(link))
-			fileCh <- fn
-			return
+			return fn
 		}
 	}
 	if isRegular {
@@ -163,19 +176,18 @@ func doFileCopy(dstFile string, srcFile string, fileCh chan<- FileNode) {
 			wtSize, err := doRegularFileCopy(dstFile, srcFile)
 			if (err != nil) {
 				fn.err = true
-				fileCh <- fn
-				return
+				return fn
 			}
 			copyFileAttribute(dstFile, srcFile)
 			fn.copySize = wtSize
-			fileCh <- fn
-			return
+			return fn
 		} else {
 			//logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
 			fn.skip = true
-			fileCh <- fn
+			return fn
 		}
 	}
+	return fn
 }
 
 
@@ -229,7 +241,7 @@ func main() {
 	flag.IntVar(&dirWorkers, "dirworker", DIRWORKERS, "concurrent walk directory workers")
 	flag.IntVar(&fileWorkers, "fileworker", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
-	flag.BoolVar(&verbose, "verbose", false, "verbose message")
+	flag.IntVar(&verbose, "verbose", 0, "verbose message")
 
         flag.Parse()
         args := flag.Args()
@@ -267,7 +279,7 @@ func main() {
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
         dpFileChan := make(chan map[DirPair][]FilePair, fileWorkers)
-	fileChan := make(chan FileNode, fileWorkers)
+	dpChan := make(chan DirPair, fileWorkers)
         var nDir sync.WaitGroup
 
 	nDir.Add(1)
@@ -290,23 +302,37 @@ func main() {
 					os.MkdirAll(dp.dstDir, 0755)
 				}
 				copyFileAttribute(dp.dstDir, dp.srcDir)
-				for _, fp := range fpList {
-					doFileCopy(fp.dstFile, fp.srcFile, fileChan) 
-				}
+				doOneDirFileCopy(dp, fpList, dpChan)
 				copyFileAttribute(dp.dstDir, dp.srcDir)
+				if verbose >= 1 {
+					logger.Printf("\t copy '%s' to '%s' completed, files: %d, dirs: %d, totalSize: %d bytes\n", 
+						dp.srcDir, dp.dstDir, dp.fileCount, dp.dirCount, dp.totalSize)
+				}
 			}()
 		}
 	}
        	go func() {
                	nFile.Wait()
-               	close(fileChan)
+               	close(dpChan)
        	}()
 
-	var i	int64
-	for _  = range fileChan {
-		i++
-		logger.Printf("\t Receive %d files\n", i )
+	var allDirCount, allFileCount, allTotalSize, allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount	int64
+	for dp := range dpChan {
+		allDirCount += dp.dirCount
+		allFileCount += dp.fileCount
+		allCopyFileCount += dp.copyFileCount
+		allTotalSize += dp.totalSize
+		allTotalCopySize += dp.totalCopySize
+		allUnsupportCount += dp.unsupportCount
+		allSkipCount += dp.skipCount
+		allErrCount += dp.errCount
 	}
+        logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
+        logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
+        logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes\n", allDirCount, allFileCount, allTotalSize)
+        logger.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n",
+			allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+        logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
+        logger.Printf("\t ############################### END #############################################################\n\n\n")
 
-	logger.Printf("\t Finished COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
 }
