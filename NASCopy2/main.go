@@ -302,16 +302,20 @@ func main() {
 					fileSema <- struct{}{}
 					defer func() { <-fileSema }()
 					var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
-					logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
+					if verbose >= 1 {
+						logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
+					}
 					if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
 						os.MkdirAll(dp.dstDir, 0755)
 					}
 					//copyFileAttribute(dp.dstDir, dp.srcDir)
 					dp = doOneDirFileCopy(dp, fpList, dpChan)
 					copyFileAttribute(dp.dstDir, dp.srcDir)
-					logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
-					logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
-						taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
+					if verbose >= 1 {
+						logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
+						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
+							taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
+					}
 				}()
 			}
 		}
