@@ -291,32 +291,32 @@ func main() {
                 close(dpFileChan)
         }()
 
-	var nFile sync.WaitGroup
-	for dpfp := range dpFileChan {
-		for dp, fpList := range dpfp {
-			nFile.Add(1)
-			var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
-			logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d], fileWorkers:[%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), len(fileSema))
-			go func() {
-				defer nFile.Done()
-				fileSema <- struct{}{}
-				defer func() { <-fileSema }()
-				if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
-					os.MkdirAll(dp.dstDir, 0755)
-				}
-				//copyFileAttribute(dp.dstDir, dp.srcDir)
-				dp = doOneDirFileCopy(dp, fpList, dpChan)
-				copyFileAttribute(dp.dstDir, dp.srcDir)
-				logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
-				logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
-					taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
-			}()
+	go func() {
+		var nFile sync.WaitGroup
+		for dpfp := range dpFileChan {
+			for dp, fpList := range dpfp {
+				nFile.Add(1)
+				go func() {
+					defer nFile.Done()
+					fileSema <- struct{}{}
+					defer func() { <-fileSema }()
+					var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
+					logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d], fileWorkers:[%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), len(fileSema))
+					if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
+						os.MkdirAll(dp.dstDir, 0755)
+					}
+					//copyFileAttribute(dp.dstDir, dp.srcDir)
+					dp = doOneDirFileCopy(dp, fpList, dpChan)
+					copyFileAttribute(dp.dstDir, dp.srcDir)
+					logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
+					logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
+						taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
+				}()
+			}
 		}
-	}
-       	go func() {
                	nFile.Wait()
                	close(dpChan)
-       	}()
+	}()
 
 	var allDirCount, allFileCount, allTotalSize, allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount	int64
 	for dp := range dpChan {
