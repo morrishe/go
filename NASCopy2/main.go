@@ -337,8 +337,7 @@ func main() {
 		if dp.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
         		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes,  dpChan:[%d/%d], speeds[%d/s]\n", allFileCount, allTotalSize, len(dpChan), fileWorkers, speed)
-        		logger.Printf("\t           allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n",
-				allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+        		logger.Printf("\t                   allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n", allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
 	}
