@@ -58,7 +58,7 @@ var verbose	int
 func dirents(dir string) []os.FileInfo {
         entries, err := ioutil.ReadDir(dir)
         if err != nil {
-                logger.Printf("\t %v\n", err)
+                logger.Printf("\t ioutil.ReadDir('%s') error: %v\n", dir, err)
                 return nil
         }
         return entries
@@ -155,13 +155,13 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 	if isSymlink { //symblink file
 		os.Remove(dstFile) // ignore error
 		if link, err := os.Readlink(srcFile); err != nil {
-			logger.Printf("\t os.Readlink('%s') error n", srcFile)
+			logger.Printf("\t os.Readlink('%s') error: %v\n", srcFile, err)
 			fn.err = true
 			return fn
 		} else {
 			err = os.Symlink(link, dstFile)
 			if err != nil {
-				logger.Printf("\t os.Symlink('%s') error n", srcFile)
+				logger.Printf("\t os.Symlink('%s') error: %v", srcFile, err)
 				fn.err = true
 				return fn
 			}
@@ -199,11 +199,13 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 
 	if sf, err = os.Open(srcFile); err != nil {
 		fmt.Fprintf(os.Stderr, "os.Open('%s') error: %v\n", srcFile, err)
+		logger.Printf("\t os.Open('%s') error: %v\n", srcFile, err)
 		return 0, err 
 	}
 	defer sf.Close()
 	if df, err = os.Create(dstFile); err != nil {
 		fmt.Fprintf(os.Stderr, "os.Create('%s') error: %v\n", dstFile, err)
+		logger.Printf("\t os.Create('%s') error: %v\n", dstFile, err)
 		return 0, err
 	}
 	defer df.Close()
@@ -254,7 +256,8 @@ func main() {
 
         l, err := os.OpenFile(logfile, os.O_APPEND | os.O_RDWR | os.O_CREATE, 0755)
         if err != nil {
-                log.Fatal(err)
+                fmt.Fprintf(os.Stderr, "os.OpenFile('%s') error: %v", logfile, err)
+		os.Exit(2)
         }
         defer l.Close()
 	logger = log.New(l, "", log.LstdFlags)
@@ -265,7 +268,7 @@ func main() {
 		log.Fatal(err)
 	}
 	if _, err := os.Stat(absSrcDir); os.IsNotExist(err) {
-		fmt.Printf("ERROR: %s is not exists, Quit!\n", absSrcDir)
+		fmt.Fprintf(os.Stderr, "ERROR: %s is not exists, Quit!\n", absSrcDir)
 		os.Exit(2)
 	}
 	dstDir := args[1]
