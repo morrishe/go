@@ -45,7 +45,7 @@ type FileNode struct {
 
 const (
 	DIRWORKERS = 128
-	FILEWORKERS = 1024
+	FILEWORKERS = 512
 )
 
 var dirWorkers	int
@@ -80,7 +80,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 
 	var fpList = make([]FilePair, 0)
 	var dirCount, fileCount, totalSize int64
-	const READCOUNT = 8192
+	const READCOUNT = 4096
 	for {
 		entrys, err := fp.Readdir(READCOUNT)
 		if err != nil && err != io.EOF {
@@ -302,7 +302,7 @@ func main() {
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
         dpFileChan := make(chan map[DirPair][]FilePair, fileWorkers)
-	dpChan := make(chan DirPair, fileWorkers)
+	dpChan := make(chan DirPair, fileWorkers/2)
         var nDir sync.WaitGroup
 
 	nDir.Add(1)
@@ -361,7 +361,8 @@ func main() {
 		}
 		if dp.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes,  dpChan:[%d/%d], speeds[%d/s]\n", allFileCount, allTotalSize, len(dpChan), fileWorkers, speed)
+        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes, dpChan:[%d/%d], dirWorkers:[%d/%d], fileWorkers:[%d/%d], speeds[%d/s]\n", 
+				allFileCount, allTotalSize, len(dpChan), fileWorkers/2, len(dirSema), dirWorkers, len(fileSema), fileWorkers, speed)
         		logger.Printf("\t                   allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n", allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
