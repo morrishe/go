@@ -45,7 +45,7 @@ type FileNode struct {
 
 const (
 	DIRWORKERS = 128
-	FILEWORKERS = 512
+	FILEWORKERS = 2048
 	READDIRCOUNT = 4096
 )
 
@@ -303,21 +303,22 @@ func main() {
 
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
-        dpFileChan := make(chan map[DirPair][]FilePair, fileWorkers)
-	dpChan := make(chan DirPair, fileWorkers/2)
+        dfPairChan := make(chan map[DirPair][]FilePair, fileWorkers)
+	dpChanLen := fileWorkers/2
+	dpChan := make(chan DirPair, dpChanLen)
         var nDir sync.WaitGroup
 
 	nDir.Add(1)
-	go walkDir(absDstDir, absSrcDir, &nDir, dpFileChan, dirSema)
+	go walkDir(absDstDir, absSrcDir, &nDir, dfPairChan, dirSema)
 
         go func() {
                 nDir.Wait()
-                close(dpFileChan)
+                close(dfPairChan)
         }()
 
 	go func() {
 		var nFile sync.WaitGroup
-		for dpfp := range dpFileChan {
+		for dpfp := range dfPairChan {
 			for dp, fpList := range dpfp {
 				nFile.Add(1)
 				go func() {
@@ -363,8 +364,7 @@ func main() {
 		}
 		if dp.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes, dpChan:[%d/%d], dirWorkers:[%d/%d], fileWorkers:[%d/%d], speeds[%d/s]\n", 
-				allFileCount, allTotalSize, len(dpChan), fileWorkers/2, len(dirSema), dirWorkers, len(fileSema), fileWorkers, speed)
+        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes, dpChan:[%d/%d], speeds[%d/s]\n", allFileCount, allTotalSize, len(dpChan), dpChanLen, speed)
         		logger.Printf("\t                   allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n", allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
