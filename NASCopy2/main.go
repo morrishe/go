@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"crypto/md5"
 )
 
 type DirPair struct {
@@ -104,7 +105,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 	dfPairChan <- dfPair
 }
 
-func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) {
+func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirPair {
 	for _, fp := range fpList {
 		fn := doFileCopy(dp.dstDir, dp.srcDir, fp.dstFile, fp.srcFile)
 		switch {
@@ -117,7 +118,7 @@ func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) {
 		}
 	}
 	dpChan <- dp
-
+	return dp
 }
 
 func doFileCopy(dstDir, srcDir, dstFile, srcFile string) FileNode {
@@ -130,8 +131,8 @@ func doFileCopy(dstDir, srcDir, dstFile, srcFile string) FileNode {
 		logger.Printf("\t '%s' is not exists, continue... ")
 		return fn
 	}
-	if verbose >= 1 {
-		logger.Printf("\t '%s' -> '%s'", srcFile, dstFile)
+	if verbose >= 2 {
+		logger.Printf("\t copy '%s' to '%s' ", srcFile, dstFile)
 	}
 	fn.srcFile = srcFile
 	fn.dstFile = dstFile
@@ -294,6 +295,8 @@ func main() {
 	for dpfp := range dpFileChan {
 		for dp, fpList := range dpfp {
 			nFile.Add(1)
+			var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
+			logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d], fileWorkers:[%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), len(fileSema))
 			go func() {
 				defer nFile.Done()
 				fileSema <- struct{}{}
@@ -302,12 +305,11 @@ func main() {
 					os.MkdirAll(dp.dstDir, 0755)
 				}
 				copyFileAttribute(dp.dstDir, dp.srcDir)
-				doOneDirFileCopy(dp, fpList, dpChan)
+				dp = doOneDirFileCopy(dp, fpList, dpChan)
 				copyFileAttribute(dp.dstDir, dp.srcDir)
-				if verbose >= 1 {
-					logger.Printf("\t copy '%s' to '%s' completed, files: %d, dirs: %d, totalSize: %d bytes\n", 
-						dp.srcDir, dp.dstDir, dp.fileCount, dp.dirCount, dp.totalSize)
-				}
+				logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
+				logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
+					taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
 			}()
 		}
 	}
