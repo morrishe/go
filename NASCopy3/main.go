@@ -1,5 +1,21 @@
 package main
 
+/*
+#include <fcntl.h>
+#include <sys/stat.h>
+
+int set_symlink_timestamp(const char *pathname, struct timespec atime, struct timespec mtime)
+{
+	int	ret;
+	struct timespec	ts[2];
+	ts[0] = atime;
+	ts[1] = mtime;
+	ret = utimensat(AT_FDCWD, pathname, ts, AT_SYMLINK_NOFOLLOW);
+	return ret;
+}
+*/
+import "C"
+
 import (
 	"os"
 	"syscall"
@@ -46,7 +62,7 @@ type FileNode struct {
 const (
 	DIRWORKERS = 128
 	FILEWORKERS = 2048
-	READDIRCOUNT = 4096
+	READDIRCOUNT = 1024
 )
 
 var dirWorkers	int
@@ -79,16 +95,22 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
                 return
 	}
 	defer fp.Close()
+	// when walk directory tree, mkdir dstDir
+	if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
+		os.MkdirAll(dstDir, 0755)
+	}
 
 	var fpList = make([]FilePair, 0)
 	var dirCount, fileCount, totalSize int64
 	for {
 		entrys, err := fp.Readdir(readdirCount)
-		if err != nil && err != io.EOF {
-			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
-			return
+		if err != nil {
+			if err != io.EOF { // error occur
+				logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
+				return
+			}
 		} 
-		if err == io.EOF && len(entrys) == 0 {
+		if len(entrys) == 0 {
 			return
 		}
 		for _, entry := range entrys {
@@ -127,6 +149,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirPair {
 	for _, fp := range fpList {
 		fn := doFileCopy(fp.dstFile, fp.srcFile)
+		copyFileAttribute(fp.dstFile, fp.srcFile)
 		switch {
 		case fn.unsupport: dp.unsupportCount++
 		case fn.skip:	dp.skipCount++
@@ -172,7 +195,7 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 		return fn
 	}
 	if isSymlink { //symblink file
-		os.Remove(dstFile) // ignore error
+		os.Remove(dstFile)
 		if link, err := os.Readlink(srcFile); err != nil {
 			logger.Printf("\t os.Readlink('%s') error: %v\n", srcFile, err)
 			fn.err = true
@@ -184,7 +207,6 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 				fn.err = true
 				return fn
 			}
-			copyFileAttribute(dstFile, srcFile)
 			fn.copySize = int64(len(link))
 			return fn
 		}
@@ -198,7 +220,6 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 				fn.err = true
 				return fn
 			}
-			copyFileAttribute(dstFile, srcFile)
 			fn.copySize = wtSize
 			return fn
 		} else {
@@ -217,13 +238,11 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 	var writtenSize int64
 
 	if sf, err = os.Open(srcFile); err != nil {
-		fmt.Fprintf(os.Stderr, "os.Open('%s') error: %v\n", srcFile, err)
 		logger.Printf("\t os.Open('%s') error: %v\n", srcFile, err)
 		return 0, err 
 	}
 	defer sf.Close()
 	if df, err = os.Create(dstFile); err != nil {
-		fmt.Fprintf(os.Stderr, "os.Create('%s') error: %v\n", dstFile, err)
 		logger.Printf("\t os.Create('%s') error: %v\n", dstFile, err)
 		return 0, err
 	}
@@ -243,16 +262,23 @@ func copyFileAttribute(dst string, src string) error {
 			atime := time.Unix(atim.Sec, atim.Nsec)
 			mtime := time.Unix(mtim.Sec, mtim.Nsec)
 			mode := fi.Mode()
-			if mode&os.ModeSymlink == 0 { //ignore symlink
+			if mode&os.ModeSymlink == 0 { //not symlink
 				if e := os.Chmod(dst, mode); e != nil {
 					//logger.Printf("\t chmod(%s, %v) error\n", dst, mode)
 				}
 				if e := os.Chtimes(dst, atime, mtime); e != nil {
 					//logger.Printf("\t os.Chtimes(%s, %v, %v) error\n", dst, atime, mtime)
 				}
+			} else { //symlink
+				at := C.struct_timespec{C.long(atim.Sec), C.long(atim.Nsec)}
+				mt := C.struct_timespec{C.long(mtim.Sec), C.long(mtim.Nsec)}
+				C.set_symlink_timestamp(C.CString(dst), at, mt)
 			}
-			if e := os.Lchown(dst, uid, gid); e != nil {
-				//logger.Printf("\t chown(%s, %d, %d) error\n", dst, uid, gid)
+			euid := os.Geteuid()
+			if euid == 0 {
+				if e := os.Lchown(dst, uid, gid); e != nil {
+					//logger.Printf("\t chown(%s, %d, %d) error\n", dst, uid, gid)
+				}
 			}
 		}
 	}
@@ -332,7 +358,6 @@ func main() {
 					if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
 						os.MkdirAll(dp.dstDir, 0755)
 					}
-					//copyFileAttribute(dp.dstDir, dp.srcDir)
 					dp = doOneDirFileCopy(dp, fpList, dpChan)
 					copyFileAttribute(dp.dstDir, dp.srcDir)
 					if verbose >= 1 {
