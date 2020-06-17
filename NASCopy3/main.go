@@ -95,24 +95,21 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
                 return
 	}
 	defer fp.Close()
-	// when walk directory tree, mkdir dstDir
-	if _, err = os.Lstat(dstDir);  os.IsNotExist(err) {
-		os.MkdirAll(dstDir, 0755)
-	}
 
-	var fpList = make([]FilePair, 0)
-	var dirCount, fileCount, totalSize int64
 	for {
+		var fpList = make([]FilePair, 0)
+		var dirCount, fileCount, totalSize int64
+
 		entrys, err := fp.Readdir(readdirCount)
-		if err != nil {
-			if err != io.EOF { // error occur
-				logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
-				return
-			}
+		if err != nil && err != io.EOF {
+			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
+			return
 		} 
+		fmt.Printf("%d\n", len(entrys))
 		if len(entrys) == 0 {
 			return
 		}
+
 		for _, entry := range entrys {
 			if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
 				continue
@@ -121,6 +118,10 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				dirCount++
 				subSrcDir := filepath.Join(srcDir, entry.Name())
 				subDstDir := filepath.Join(dstDir, entry.Name())
+				// when walk directory tree, mkdir dstDir
+				if _, e := os.Lstat(subDstDir);  os.IsNotExist(e) {
+					os.MkdirAll(subDstDir, 0755)
+				}
 				nDir.Add(1)
 				go walkDir(subDstDir, subSrcDir, nDir, dfPairChan, dirSema)
 			} else {
@@ -141,6 +142,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 
 		dfPair := make(map[DirPair][]FilePair)
 		dfPair[dp] = fpList
+		fmt.Printf("****************\n")
 
 		dfPairChan <- dfPair
 	}
@@ -149,7 +151,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirPair {
 	for _, fp := range fpList {
 		fn := doFileCopy(fp.dstFile, fp.srcFile)
-		copyFileAttribute(fp.dstFile, fp.srcFile)
+		copyFileDirAttr(fp.dstFile, fp.srcFile)
 		switch {
 		case fn.unsupport: dp.unsupportCount++
 		case fn.skip:	dp.skipCount++
@@ -170,7 +172,7 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 	var fn FileNode
 
 	if sfi, err = os.Lstat(srcFile); os.IsNotExist(err) {
-		logger.Printf("\t '%s' is not exists, continue... ")
+		logger.Printf("\t '%s' is not exists, continue... ", srcFile)
 		return fn
 	}
 	if verbose >= 2 {
@@ -194,6 +196,7 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 		fn.unsupport = true
 		return fn
 	}
+
 	if isSymlink { //symblink file
 		os.Remove(dstFile)
 		if link, err := os.Readlink(srcFile); err != nil {
@@ -203,7 +206,7 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 		} else {
 			err = os.Symlink(link, dstFile)
 			if err != nil {
-				logger.Printf("\t os.Symlink('%s') error: %v", srcFile, err)
+				logger.Printf("\t os.Symlink('%s', '%s') error: %v", link, dstFile, err)
 				fn.err = true
 				return fn
 			}
@@ -251,7 +254,7 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 	return writtenSize, err
 }
 
-func copyFileAttribute(dst string, src string) error {
+func copyFileDirAttr(dst string, src string) error {
 	if fi, err := os.Lstat(src); err == nil {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 			uid := int(st.Uid)
@@ -322,6 +325,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if _, err = os.Lstat(absDstDir);  os.IsNotExist(err) {
+		os.MkdirAll(absDstDir, 0755)
+	}
 
 	startTime := time.Now().Unix()
 	logger.Printf("\t #############################  BEGIN  #########################################################\n")
@@ -346,6 +352,7 @@ func main() {
 		var nFile sync.WaitGroup
 		for dpfp := range dfPairChan {
 			for dp, fpList := range dpfp {
+				//fmt.Printf("%s----> %s\n", dp.srcDir, dp.dstDir)
 				nFile.Add(1)
 				go func() {
 					defer nFile.Done()
@@ -355,11 +362,8 @@ func main() {
 					if verbose >= 1 {
 						logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
 					}
-					if _, err = os.Lstat(dp.dstDir);  os.IsNotExist(err) {
-						os.MkdirAll(dp.dstDir, 0755)
-					}
 					dp = doOneDirFileCopy(dp, fpList, dpChan)
-					copyFileAttribute(dp.dstDir, dp.srcDir)
+					copyFileDirAttr(dp.dstDir, dp.srcDir)
 					if verbose >= 1 {
 						logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
 						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
