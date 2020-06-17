@@ -72,6 +72,7 @@ var logfile	string
 var logger	*log.Logger
 var verbose	int
 var readdirCount	int
+var keepNewer	bool
 
 /*  old readdir method
 func dirents(dir string) []os.FileInfo {
@@ -213,9 +214,19 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 		}
 	}
 	if isRegular {
+		var needCopy bool
 		dfi, err = os.Lstat(dstFile)
-		if os.IsNotExist(err) || dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
-			// ModTime or Size is not same, file modified, copy it
+		if os.IsNotExist(err) { 
+			needCopy = true
+		} else if dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
+			needCopy = true
+			if keepNewer == true && dfi.ModTime().Unix() > sfi.ModTime().Unix() { 
+				needCopy = false
+			}
+		} else { // file exist and the same size and the mtime is same, it should be same file
+			needCopy = false
+		}
+		if needCopy == true {
 			wtSize, err := doRegularFileCopy(dstFile, srcFile)
 			if (err != nil) {
 				fn.err = true
@@ -224,7 +235,6 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 			fn.copySize = wtSize
 			return fn
 		} else {
-			//logger.Printf("\t %s exist and ModTime() and Size() is same, the same file, skip it\n", dstFile)
 			fn.skip = true
 			return fn
 		}
@@ -287,11 +297,12 @@ func copyFileDirAttr(dst string, src string) error {
 }
 
 func main() {
-	flag.IntVar(&dirWorkers, "dirworker", DIRWORKERS, "concurrent walk directory workers")
-	flag.IntVar(&fileWorkers, "fileworker", FILEWORKERS, "concurrent file copy workers")
+	flag.IntVar(&dirWorkers, "dirWorker", DIRWORKERS, "concurrent walk directory workers")
+	flag.IntVar(&fileWorkers, "fileWorker", FILEWORKERS, "concurrent file copy workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/NASCopy.log", "log filename")
 	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 null message, 1 for dir, >=2 for dir and files")
 	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
+	flag.BoolVar(&keepNewer, "keepNewer", false, "default override destination file, enable this option will keep *NEWER* destination file")
 
         flag.Parse()
         args := flag.Args()
