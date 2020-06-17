@@ -46,7 +46,7 @@ type DirPair struct {
 
 type FilePair struct {
         srcFile         string
-        dstFile          string
+        dstFile         string
 }
 
 type FileNode struct {
@@ -60,8 +60,8 @@ type FileNode struct {
 }
 
 const (
-	DIRWORKERS = 128
-	FILEWORKERS = 2048
+	DIRWORKERS = 256
+	FILEWORKERS = 1024
 	READDIRCOUNT = 1024
 )
 
@@ -107,6 +107,15 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			return
 		} 
 		if len(entrys) == 0 {
+			/* for empty directory */
+			func() {
+				var dp	DirPair
+				dp.srcDir = srcDir
+				dp.dstDir = dstDir
+				dfPair := make(map[DirPair][]FilePair)
+				dfPair[dp] = fpList
+				dfPairChan <- dfPair
+			}()
 			return
 		}
 
@@ -150,7 +159,9 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirPair {
 	for _, fp := range fpList {
 		fn := doFileCopy(fp.dstFile, fp.srcFile)
-		copyFileDirAttr(fp.dstFile, fp.srcFile)
+		if !fn.skip {
+			copyFileDirAttr(fp.dstFile, fp.srcFile)
+		}
 		switch {
 		case fn.unsupport: dp.unsupportCount++
 		case fn.skip:	dp.skipCount++
@@ -169,6 +180,7 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 	var err	error 
 	var isSymlink, isRegular, isUnsupport	 bool
 	var fn FileNode
+	var needCopy bool
 
 	if sfi, err = os.Lstat(srcFile); os.IsNotExist(err) {
 		logger.Printf("\t '%s' is not exists, continue... ", srcFile)
@@ -214,7 +226,6 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 		}
 	}
 	if isRegular {
-		var needCopy bool
 		dfi, err = os.Lstat(dstFile)
 		if os.IsNotExist(err) { 
 			needCopy = true
