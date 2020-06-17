@@ -105,7 +105,6 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
 			return
 		} 
-		fmt.Printf("%d\n", len(entrys))
 		if len(entrys) == 0 {
 			return
 		}
@@ -142,7 +141,6 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 
 		dfPair := make(map[DirPair][]FilePair)
 		dfPair[dp] = fpList
-		fmt.Printf("****************\n")
 
 		dfPairChan <- dfPair
 	}
