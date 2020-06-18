@@ -364,11 +364,10 @@ func main() {
                 close(dfPairChan)
         }()
 
+	var nFile sync.WaitGroup
 	go func() {
-		var nFile sync.WaitGroup
 		for dpfp := range dfPairChan {
 			for dp, fpList := range dpfp {
-				//fmt.Printf("%s----> %s\n", dp.srcDir, dp.dstDir)
 				nFile.Add(1)
 				go func() {
 					defer nFile.Done()
