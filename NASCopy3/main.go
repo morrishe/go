@@ -383,7 +383,11 @@ func main() {
 						copyFileDirAttr(dp.dstDir, dp.srcDir)
 					}
 					if verbose >= 1 {
-						logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
+						if dp.toBeContinue {
+							logger.Printf("\t %s: partial finish copy '%s' to '%s', to be continue ....... \n", taskId, dp.srcDir, dp.dstDir)
+						} else {
+							logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
+						}
 						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
 							taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
 					}
