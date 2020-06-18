@@ -42,6 +42,7 @@ type DirPair struct {
 	unsupportCount	int64
 	skipCount	int64
 	errCount	int64
+	toBeContinue	bool
 }
 
 type FilePair struct {
@@ -106,19 +107,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
 			return
 		} 
-		if len(entrys) == 0 {
-			/* for empty directory */
-			func() {
-				var dp	DirPair
-				dp.srcDir = srcDir
-				dp.dstDir = dstDir
-				dfPair := make(map[DirPair][]FilePair)
-				dfPair[dp] = fpList
-				dfPairChan <- dfPair
-			}()
-			return
-		}
-
+			
 		for _, entry := range entrys {
 			if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
 				continue
@@ -148,11 +137,17 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		dp.totalSize = totalSize
 		dp.dirCount = dirCount
 		dp.fileCount = fileCount
+		if len(entrys) == readdirCount {
+			dp.toBeContinue = true
+		}
 
 		dfPair := make(map[DirPair][]FilePair)
 		dfPair[dp] = fpList
-
 		dfPairChan <- dfPair
+		
+		if len(entrys) < readdirCount { // readdir completed
+			break	
+		}
 	}
 }
 
@@ -274,6 +269,7 @@ func doRegularFileCopy(dstFile string, srcFile string) (int64, error) {
 }
 
 func copyFileDirAttr(dst string, src string) error {
+	//fmt.Println(dst, src)
 	if fi, err := os.Lstat(src); err == nil {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
 			uid := int(st.Uid)
@@ -383,7 +379,9 @@ func main() {
 						logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
 					}
 					dp = doOneDirFileCopy(dp, fpList, dpChan)
-					copyFileDirAttr(dp.dstDir, dp.srcDir)
+					if !dp.toBeContinue {
+						copyFileDirAttr(dp.dstDir, dp.srcDir)
+					}
 					if verbose >= 1 {
 						logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
 						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
