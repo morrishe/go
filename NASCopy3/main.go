@@ -61,9 +61,9 @@ type FileNode struct {
 }
 
 const (
-	DIRWORKERS = 256
-	FILEWORKERS = 1024
-	READDIRCOUNT = 1024
+	DIRWORKERS = 1024
+	FILEWORKERS = 4096
+	READDIRCOUNT = 4096
 )
 
 var dirWorkers	int
@@ -88,7 +88,6 @@ func dirents(dir string) []os.FileInfo {
 
 func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan chan<- map[DirPair][]FilePair, dirSema chan struct{}) {
         defer nDir.Done()
-        dirSema <- struct{}{}
         defer func() { <-dirSema }()
 
 	fp, err := os.Open(srcDir)
@@ -121,6 +120,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 					os.MkdirAll(subDstDir, 0755)
 				}
 				nDir.Add(1)
+        			dirSema <- struct{}{}
 				go walkDir(subDstDir, subSrcDir, nDir, dfPairChan, dirSema)
 			} else {
 				fileCount++
@@ -352,11 +352,12 @@ func main() {
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
         dfPairChan := make(chan map[DirPair][]FilePair, fileWorkers)
-	dpChanLen := fileWorkers/2
+	dpChanLen := fileWorkers
 	dpChan := make(chan DirPair, dpChanLen)
         var nDir sync.WaitGroup
 
 	nDir.Add(1)
+       	dirSema <- struct{}{}
 	go walkDir(absDstDir, absSrcDir, &nDir, dfPairChan, dirSema)
 
         go func() {
@@ -369,9 +370,9 @@ func main() {
 		for dpfp := range dfPairChan {
 			for dp, fpList := range dpfp {
 				nFile.Add(1)
+				fileSema <- struct{}{}
 				go func() {
 					defer nFile.Done()
-					fileSema <- struct{}{}
 					defer func() { <-fileSema }()
 					var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
 					if verbose >= 1 {
