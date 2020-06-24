@@ -20,13 +20,19 @@ type DirNode struct {
 	PathName	string
 	maxNameLenFile	string
 	maxNameLen	int
+	up2dateModTime	time.Time
+	up2dateFile	string
 }
 
 func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode, sema chan struct{}) {
         defer n.Done()
+
+        sema <- struct{}{}
 	entrys := dirents(dir, sema)
+
 	var dirCounts, fileCounts, maxNameLen int
-	var maxNameLenFile string
+	var maxNameLenFile, up2dateFile string
+	var up2dateModTime time.Time
         for _, entry := range entrys {
 		if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
 			continue
@@ -42,6 +48,10 @@ func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode, sema 
                         go walkDir(subdir, depth+1, n, ch, sema)
                 } else {
 			fileCounts++
+			if entry.ModTime().Unix() > up2dateModTime.Unix() {
+				up2dateModTime = entry.ModTime()
+				up2dateFile = filepath.Join(dir, entry.Name())
+			}
 		}
         }
 	var dn DirNode
@@ -51,13 +61,14 @@ func walkDir(dir string, depth int,  n *sync.WaitGroup, ch chan<- DirNode, sema 
 	dn.Depth = depth
 	dn.maxNameLenFile = maxNameLenFile
 	dn.maxNameLen = maxNameLen
+	dn.up2dateModTime = up2dateModTime
+	dn.up2dateFile = up2dateFile
 	
         ch <- dn
 }
 
 //var sema = make(chan struct{}, 32)
 func dirents(dir string, sema chan struct{}) []os.FileInfo {
-        sema <- struct{}{}
         defer func() { <-sema }()
 
         entries, err := ioutil.ReadDir(dir)
@@ -130,7 +141,9 @@ func main() {
 
 	var maxEntry, maxDepth, maxNameLen		int
 	var maxDepthDN, maxEntryDN, maxNameLenDN	DirNode
+	var up2dateModTimeDN				DirNode
 	var depthExceeded, entryExceeded  		bool
+	var up2dateModTime				time.Time
 	
         for dn := range dnChan {
 		if dn.Depth > maxDepth {
@@ -165,6 +178,10 @@ func main() {
 			}
 			maxNameLenDN = dn
 		}
+		if dn.up2dateModTime.Unix() > up2dateModTime.Unix() {
+			up2dateModTime = dn.up2dateModTime
+			up2dateModTimeDN = dn
+		}
 			
         }
 
@@ -182,6 +199,7 @@ func main() {
 		f.WriteString(fmt.Sprintf("                        maxEntry: [%s]: depth[%d], entrys[%d],  files[%d], dirs[%d]\n", maxEntryDN.PathName, maxEntryDN.Depth, 
 			maxEntryDN.FileCounts+maxEntryDN.DirCounts, maxEntryDN.FileCounts, maxEntryDN.DirCounts))
 	}
+	f.WriteString(fmt.Sprintf("                        Up-to-date file: [%s], mod_time: [%v]\n", up2dateModTimeDN.up2dateFile, up2dateModTime))
 	f.WriteString(fmt.Sprintf("                        ------------------------ End of RESULT ---------------------\n"))
 
 	if depthExceeded == true {
