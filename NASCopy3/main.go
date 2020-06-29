@@ -366,9 +366,11 @@ func main() {
         }()
 
 	var nFile sync.WaitGroup
+	var dpList []DirPair
 	go func() {
 		for dpfp := range dfPairChan {
 			for dp, fpList := range dpfp {
+				dpList = append(dpList, dp)
 				nFile.Add(1)
 				fileSema <- struct{}{}
 				go func() {
@@ -379,9 +381,6 @@ func main() {
 						logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
 					}
 					dp = doOneDirFileCopy(dp, fpList, dpChan)
-					if !dp.toBeContinue {
-						copyFileDirAttr(dp.dstDir, dp.srcDir)
-					}
 					if verbose >= 1 {
 						if dp.toBeContinue {
 							logger.Printf("\t %s: partial finish copy '%s' to '%s', to be continue ....... \n", taskId, dp.srcDir, dp.dstDir)
@@ -395,6 +394,9 @@ func main() {
 			}
 		}
                	nFile.Wait()
+		for _, dp2 := range dpList {
+			copyFileDirAttr(dp2.dstDir, dp2.srcDir)
+		}
                	close(dpChan)
 	}()
 
