@@ -60,6 +60,11 @@ type FileNode struct {
         copySize        int64
 }
 
+type LargeDirPair struct {
+	srcDir		string
+	dstDir		string
+}
+
 const (
 	DIRWORKERS = 1024
 	FILEWORKERS = 4096
@@ -85,6 +90,12 @@ func dirents(dir string) []os.FileInfo {
         return entries
 }
 */
+
+/* when a big directory is encounted, we need invoke *File.readdir() many times, when finished all of files copy (in big directory), we can chmod the big directory
+  largeDirMap to record the times of invoke *File.readdir(),  largeDirMutex for avoid concurrent access 
+ */
+var largeDPMap = map[LargeDirPair]int64{}
+var largeDPMutex sync.Mutex
 
 func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan chan<- map[DirPair][]FilePair, dirSema chan struct{}) {
         defer nDir.Done()
@@ -141,10 +152,17 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			dp.toBeContinue = true
 		}
 
+		largeDPMutex.Lock()	
+		var tmp	LargeDirPair
+		tmp.srcDir = srcDir
+		tmp.dstDir = dstDir
+		largeDPMap[tmp]++
+		largeDPMutex.Unlock()
+
 		dfPair := make(map[DirPair][]FilePair)
 		dfPair[dp] = fpList
 		dfPairChan <- dfPair
-		
+	
 		if len(entrys) < readdirCount { // readdir completed
 			break	
 		}
@@ -366,11 +384,9 @@ func main() {
         }()
 
 	var nFile sync.WaitGroup
-	var dpList []DirPair
 	go func() {
 		for dpfp := range dfPairChan {
 			for dp, fpList := range dpfp {
-				dpList = append(dpList, dp)
 				nFile.Add(1)
 				fileSema <- struct{}{}
 				go func() {
@@ -390,13 +406,22 @@ func main() {
 						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
 							taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
 					}
+					largeDPMutex.Lock()	
+					var tmp LargeDirPair
+					tmp.srcDir = dp.srcDir
+					tmp.dstDir = dp.dstDir
+					largeDPMap[tmp]--
+					if largeDPMap[tmp] == 0 {
+						copyFileDirAttr(tmp.dstDir, tmp.srcDir)
+						delete(largeDPMap, tmp)
+					} else {
+						//fmt.Printf(" largeDPMap[%s]: %d,  length: %d\n", tmp.dstDir, largeDPMap[tmp], len(largeDPMap))
+					}
+					largeDPMutex.Unlock()
 				}()
 			}
 		}
                	nFile.Wait()
-		for _, dp2 := range dpList {
-			copyFileDirAttr(dp2.dstDir, dp2.srcDir)
-		}
                	close(dpChan)
 	}()
 
