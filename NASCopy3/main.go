@@ -79,6 +79,7 @@ var logger	*log.Logger
 var verbose	int
 var readdirCount	int
 var keepNewer	bool
+var euid = os.Geteuid()
 
 /*  old readdir method
 func dirents(dir string) []os.FileInfo {
@@ -116,13 +117,6 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			return
 		} 
 
-		largeDPMutex.Lock()	
-		var tmp	DirPair
-		tmp.srcDir = srcDir
-		tmp.dstDir = dstDir
-		largeDPMap[tmp]++
-		largeDPMutex.Unlock()
-			
 		for _, entry := range entrys {
 			if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
 				continue
@@ -154,10 +148,23 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		dpi.totalSize = totalSize
 		dpi.dirCount = dirCount
 		dpi.fileCount = fileCount
+
+		if euid != 0 {
+			largeDPMutex.Lock()	
+			var tmp	DirPair
+			tmp.srcDir = srcDir
+			tmp.dstDir = dstDir
+			if len(entrys) == readdirCount { //at here, must have next readdir(), the consumer must be not invoke copyFileDirAttr for not-root user
+				largeDPMap[tmp] += 2
+			} else {
+				largeDPMap[tmp] += 1
+			}
+			largeDPMutex.Unlock()
+		}
+
 		if len(entrys) == readdirCount {
 			dpi.toBeContinue = true
 		}
-
 		dfPair := make(map[DirPairInfo][]FilePair)
 		dfPair[dpi] = fpList
 		dfPairChan <- dfPair
@@ -319,7 +326,6 @@ func copyFileDirAttr(dst string, src string) error {
 				mt := C.struct_timespec{C.long(mtim.Sec), C.long(mtim.Nsec)}
 				C.set_symlink_timestamp(C.CString(dst), at, mt)
 			}
-			euid := os.Geteuid()
 			if euid == 0 {
 				if e := os.Lchown(dst, uid, gid); e != nil {
 					//logger.Printf("\t chown(%s, %d, %d) error\n", dst, uid, gid)
@@ -374,7 +380,7 @@ func main() {
 
 	startTime := time.Now().Unix()
 	logger.Printf("\t #############################  BEGIN  #########################################################\n")
-	logger.Printf("\t Begin to COPY ['%s'] to ['%s'].....\n", absSrcDir, absDstDir)
+	logger.Printf("\t User['%d'] Begin to COPY ['%s'] to ['%s'].....\n", euid, absSrcDir, absDstDir)
 
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
@@ -415,18 +421,23 @@ func main() {
 						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
 							taskId, dpi.dirCount, dpi.fileCount, dpi.totalSize, dpi.copyFileCount, dpi.totalCopySize, dpi.unsupportCount, dpi.skipCount, dpi.errCount)
 					}
-					largeDPMutex.Lock()	
-					var tmp DirPair
-					tmp.srcDir = dpi.srcDir
-					tmp.dstDir = dpi.dstDir
-					largeDPMap[tmp]--
-					if largeDPMap[tmp] == 0 {
-						copyFileDirAttr(tmp.dstDir, tmp.srcDir)
-						delete(largeDPMap, tmp)
+					/* Large directory need many-times readdir(), it should be restore source directory permission the last times invoke,
+					   otherwise when source directory is ownned by root, maybe not-root user has no permission to write the directory
+					 */
+					if euid != 0 {
+						largeDPMutex.Lock()	
+						var tmp DirPair
+						tmp.srcDir = dpi.srcDir
+						tmp.dstDir = dpi.dstDir
+						largeDPMap[tmp]--
+						if largeDPMap[tmp] == 0 { // this is the last-loop write for large directory, need restore directory's permission
+							copyFileDirAttr(tmp.dstDir, tmp.srcDir)
+							delete(largeDPMap, tmp)
+						}
+						largeDPMutex.Unlock()
 					} else {
-						//fmt.Printf(" largeDPMap[%s]: %d,  length: %d\n", tmp.dstDir, largeDPMap[tmp], len(largeDPMap))
+						copyFileDirAttr(dpi.dstDir, dpi.srcDir)
 					}
-					largeDPMutex.Unlock()
 				}()
 			}
 		}
