@@ -66,8 +66,8 @@ type LargeDirPair struct {
 }
 
 const (
-	DIRWORKERS = 1024
-	FILEWORKERS = 4096
+	DIRWORKERS = 256
+	FILEWORKERS = 512
 	READDIRCOUNT = 4096
 )
 
@@ -101,18 +101,18 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
         defer nDir.Done()
         defer func() { <-dirSema }()
 
-	fp, err := os.Open(srcDir)
+	dirF, err := os.Open(srcDir)
 	if err != nil {
                 logger.Printf("\t os.Open('%s') error: %v\n", dstDir, err)
                 return
 	}
-	defer fp.Close()
+	defer dirF.Close()
 
 	for {
 		var fpList = make([]FilePair, 0)
 		var dirCount, fileCount, totalSize int64
 
-		entrys, err := fp.Readdir(readdirCount)
+		entrys, err := dirF.Readdir(readdirCount)
 		if err != nil && err != io.EOF {
 			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
 			return
