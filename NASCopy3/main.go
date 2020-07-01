@@ -164,7 +164,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		dfPairChan <- dfPair
 	
 		if len(entrys) < readdirCount { // readdir completed
-			break	
+			return
 		}
 	}
 }
