@@ -31,7 +31,7 @@ import (
 	"crypto/md5"
 )
 
-type DirPair struct {
+type DirPairInfo struct {
         srcDir          string
         dstDir          string
 	fileCount	int64
@@ -43,6 +43,11 @@ type DirPair struct {
 	skipCount	int64
 	errCount	int64
 	toBeContinue	bool
+}
+
+type DirPair struct {
+	srcDir		string
+	dstDir		string
 }
 
 type FilePair struct {
@@ -60,14 +65,9 @@ type FileNode struct {
         copySize        int64
 }
 
-type LargeDirPair struct {
-	srcDir		string
-	dstDir		string
-}
-
 const (
-	DIRWORKERS = 256
-	FILEWORKERS = 512
+	DIRWORKERS = 1024
+	FILEWORKERS = 4096
 	READDIRCOUNT = 4096
 )
 
@@ -94,20 +94,18 @@ func dirents(dir string) []os.FileInfo {
 /* when a big directory is encounted, we need invoke *File.readdir() many times, when finished all of files copy (in big directory), we can chmod the big directory
   largeDirMap to record the times of invoke *File.readdir(),  largeDirMutex for avoid concurrent access 
  */
-var largeDPMap = map[LargeDirPair]int64{}
+var largeDPMap = map[DirPair]int64{}
 var largeDPMutex sync.Mutex
 
-func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan chan<- map[DirPair][]FilePair, dirSema chan struct{}) {
+func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan chan<- map[DirPairInfo][]FilePair, dirSema chan struct{}) {
         defer nDir.Done()
-        defer func() { <-dirSema }()
 
 	dirF, err := os.Open(srcDir)
 	if err != nil {
                 logger.Printf("\t os.Open('%s') error: %v\n", dstDir, err)
                 return
 	}
-	defer dirF.Close()
-
+	var dpList = make([]DirPair, 0)
 	for {
 		var fpList = make([]FilePair, 0)
 		var dirCount, fileCount, totalSize int64
@@ -119,7 +117,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		} 
 
 		largeDPMutex.Lock()	
-		var tmp	LargeDirPair
+		var tmp	DirPair
 		tmp.srcDir = srcDir
 		tmp.dstDir = dstDir
 		largeDPMap[tmp]++
@@ -137,9 +135,10 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				if _, e := os.Lstat(subDstDir);  os.IsNotExist(e) {
 					os.MkdirAll(subDstDir, 0755)
 				}
-				nDir.Add(1)
-        			dirSema <- struct{}{}
-				go walkDir(subDstDir, subSrcDir, nDir, dfPairChan, dirSema)
+				var dp DirPair
+				dp.srcDir = subSrcDir
+				dp.dstDir = subDstDir
+				dpList = append(dpList, dp)
 			} else {
 				fileCount++
 				totalSize += entry.Size()
@@ -149,43 +148,53 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				fpList = append(fpList, fp)
 			}
 		}
-		var dp	DirPair
-		dp.srcDir = srcDir
-		dp.dstDir = dstDir
-		dp.totalSize = totalSize
-		dp.dirCount = dirCount
-		dp.fileCount = fileCount
+		var dpi	DirPairInfo
+		dpi.srcDir = srcDir
+		dpi.dstDir = dstDir
+		dpi.totalSize = totalSize
+		dpi.dirCount = dirCount
+		dpi.fileCount = fileCount
 		if len(entrys) == readdirCount {
-			dp.toBeContinue = true
+			dpi.toBeContinue = true
 		}
 
-		dfPair := make(map[DirPair][]FilePair)
-		dfPair[dp] = fpList
+		dfPair := make(map[DirPairInfo][]FilePair)
+		dfPair[dpi] = fpList
 		dfPairChan <- dfPair
 	
 		if len(entrys) < readdirCount { // readdir completed
-			return
+			break
 		}
 	}
+	// close the opened directory
+	dirF.Close()
+        func() { <-dirSema }()
+
+	for _, dp2 := range dpList {
+		nDir.Add(1)
+		dirSema <- struct{}{}
+		go walkDir(dp2.dstDir, dp2.srcDir, nDir, dfPairChan, dirSema)
+	}
+		
 }
 
-func doOneDirFileCopy(dp DirPair, fpList []FilePair, dpChan chan<- DirPair) DirPair {
+func doOneDirFileCopy(dpi DirPairInfo, fpList []FilePair, dpiChan chan<- DirPairInfo) DirPairInfo {
 	for _, fp := range fpList {
 		fn := doFileCopy(fp.dstFile, fp.srcFile)
 		if !fn.skip {
 			copyFileDirAttr(fp.dstFile, fp.srcFile)
 		}
 		switch {
-		case fn.unsupport: dp.unsupportCount++
-		case fn.skip:	dp.skipCount++
-		case fn.err:	dp.errCount++
+		case fn.unsupport: dpi.unsupportCount++
+		case fn.skip:	dpi.skipCount++
+		case fn.err:	dpi.errCount++
 		default:
-			dp.totalCopySize += fn.copySize
-			dp.copyFileCount++
+			dpi.totalCopySize += fn.copySize
+			dpi.copyFileCount++
 		}
 	}
-	dpChan <- dp
-	return dp
+	dpiChan <- dpi
+	return dpi
 }
 
 func doFileCopy(dstFile, srcFile string) FileNode {
@@ -369,9 +378,9 @@ func main() {
 
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
-        dfPairChan := make(chan map[DirPair][]FilePair, fileWorkers)
-	dpChanLen := fileWorkers
-	dpChan := make(chan DirPair, dpChanLen)
+        dfPairChan := make(chan map[DirPairInfo][]FilePair, fileWorkers)
+	dpiChanLen := fileWorkers
+	dpiChan := make(chan DirPairInfo, dpiChanLen)
         var nDir sync.WaitGroup
 
 	nDir.Add(1)
@@ -385,31 +394,31 @@ func main() {
 
 	var nFile sync.WaitGroup
 	go func() {
-		for dpfp := range dfPairChan {
-			for dp, fpList := range dpfp {
+		for dpifp := range dfPairChan {
+			for dpi, fpList := range dpifp {
 				nFile.Add(1)
 				fileSema <- struct{}{}
 				go func() {
 					defer nFile.Done()
 					defer func() { <-fileSema }()
-					var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dp.srcDir)))
+					var taskId = fmt.Sprintf("%x", md5.Sum([]byte(dpi.srcDir)))
 					if verbose >= 1 {
-						logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dp.srcDir, dp.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
+						logger.Printf("\t %s: start copy ['%s'] to ['%s'], dirWorkers:[%d/%d], fileWorkers:[%d/%d]\n", taskId, dpi.srcDir, dpi.dstDir, len(dirSema), dirWorkers, len(fileSema), fileWorkers)
 					}
-					dp = doOneDirFileCopy(dp, fpList, dpChan)
+					dpi = doOneDirFileCopy(dpi, fpList, dpiChan)
 					if verbose >= 1 {
-						if dp.toBeContinue {
-							logger.Printf("\t %s: partial finish copy '%s' to '%s', to be continue ....... \n", taskId, dp.srcDir, dp.dstDir)
+						if dpi.toBeContinue {
+							logger.Printf("\t %s: partial finish copy '%s' to '%s', to be continue ....... \n", taskId, dpi.srcDir, dpi.dstDir)
 						} else {
-							logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dp.srcDir, dp.dstDir)
+							logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dpi.srcDir, dpi.dstDir)
 						}
 						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
-							taskId, dp.dirCount, dp.fileCount, dp.totalSize, dp.copyFileCount, dp.totalCopySize, dp.unsupportCount, dp.skipCount, dp.errCount)
+							taskId, dpi.dirCount, dpi.fileCount, dpi.totalSize, dpi.copyFileCount, dpi.totalCopySize, dpi.unsupportCount, dpi.skipCount, dpi.errCount)
 					}
 					largeDPMutex.Lock()	
-					var tmp LargeDirPair
-					tmp.srcDir = dp.srcDir
-					tmp.dstDir = dp.dstDir
+					var tmp DirPair
+					tmp.srcDir = dpi.srcDir
+					tmp.dstDir = dpi.dstDir
 					largeDPMap[tmp]--
 					if largeDPMap[tmp] == 0 {
 						copyFileDirAttr(tmp.dstDir, tmp.srcDir)
@@ -422,27 +431,27 @@ func main() {
 			}
 		}
                	nFile.Wait()
-               	close(dpChan)
+               	close(dpiChan)
 	}()
 
 	var allDirCount, allFileCount, allTotalSize, allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount	int64
-	for dp := range dpChan {
-		allDirCount += dp.dirCount
-		allFileCount += dp.fileCount
-		allCopyFileCount += dp.copyFileCount
-		allTotalSize += dp.totalSize
-		allTotalCopySize += dp.totalCopySize
-		allUnsupportCount += dp.unsupportCount
-		allSkipCount += dp.skipCount
-		allErrCount += dp.errCount
+	for dpi := range dpiChan {
+		allDirCount += dpi.dirCount
+		allFileCount += dpi.fileCount
+		allCopyFileCount += dpi.copyFileCount
+		allTotalSize += dpi.totalSize
+		allTotalCopySize += dpi.totalCopySize
+		allUnsupportCount += dpi.unsupportCount
+		allSkipCount += dpi.skipCount
+		allErrCount += dpi.errCount
 		timeElasped := time.Now().Unix() - startTime
 		var speed int64
 		if timeElasped > 0 {
 			speed = allFileCount / timeElasped
 		}
-		if dp.copyFileCount > 0 {
+		if dpi.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes, dpChan:[%d/%d], speeds[%d/s], Elasped[%d sec]\n", allFileCount, allTotalSize, len(dpChan), dpChanLen, speed, timeElasped)
+        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes, dpiChan:[%d/%d], speeds[%d/s], Elasped[%d sec]\n", allFileCount, allTotalSize, len(dpiChan), dpiChanLen, speed, timeElasped)
         		logger.Printf("\t                   allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n", allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
