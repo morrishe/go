@@ -117,6 +117,13 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			logger.Printf("\t (*File).Readdir(%d) error: %v\n", readdirCount, err)
 			return
 		} 
+
+		largeDPMutex.Lock()	
+		var tmp	LargeDirPair
+		tmp.srcDir = srcDir
+		tmp.dstDir = dstDir
+		largeDPMap[tmp]++
+		largeDPMutex.Unlock()
 			
 		for _, entry := range entrys {
 			if entry.Name() == ".snapshot" && entry.IsDir() {  /* skip NAS .snapshot directory */
@@ -151,13 +158,6 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		if len(entrys) == readdirCount {
 			dp.toBeContinue = true
 		}
-
-		largeDPMutex.Lock()	
-		var tmp	LargeDirPair
-		tmp.srcDir = srcDir
-		tmp.dstDir = dstDir
-		largeDPMap[tmp]++
-		largeDPMutex.Unlock()
 
 		dfPair := make(map[DirPair][]FilePair)
 		dfPair[dp] = fpList
