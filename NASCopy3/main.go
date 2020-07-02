@@ -149,19 +149,6 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		dpi.dirCount = dirCount
 		dpi.fileCount = fileCount
 
-		if euid != 0 {
-			largeDPMutex.Lock()	
-			var tmp	DirPair
-			tmp.srcDir = srcDir
-			tmp.dstDir = dstDir
-			if len(entrys) == readdirCount { //at here, must have next readdir(), the consumer must be not invoke copyFileDirAttr for not-root user
-				largeDPMap[tmp] += 2
-			} else {
-				largeDPMap[tmp] += 1
-			}
-			largeDPMutex.Unlock()
-		}
-
 		if len(entrys) == readdirCount {
 			dpi.toBeContinue = true
 		}
@@ -404,6 +391,16 @@ func main() {
 			for dpi, fpList := range dpifp {
 				nFile.Add(1)
 				fileSema <- struct{}{}
+
+				if euid != 0 {
+					largeDPMutex.Lock()	
+					var tmp	DirPair
+					tmp.srcDir = dpi.srcDir
+					tmp.dstDir = dpi.dstDir
+					largeDPMap[tmp]++
+					largeDPMutex.Unlock()
+				}
+
 				go func() {
 					defer nFile.Done()
 					defer func() { <-fileSema }()
@@ -430,7 +427,7 @@ func main() {
 						tmp.srcDir = dpi.srcDir
 						tmp.dstDir = dpi.dstDir
 						largeDPMap[tmp]--
-						if largeDPMap[tmp] == 0 { // this is the last-loop write for large directory, need restore directory's permission
+						if largeDPMap[tmp] == 0 {
 							copyFileDirAttr(tmp.dstDir, tmp.srcDir)
 							delete(largeDPMap, tmp)
 						}
