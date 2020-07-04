@@ -157,8 +157,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				{
 					fullPathName := filepath.Join(srcDir, entry.Name())
 					keyName := fullPathName[len(ABSSRCDIR)+1:]
-					if excludeDirMap[keyName] {
-						logger.Printf("\t               '%s' is '%s' in exclude directory list, ignore\n", fullPathName, keyName)
+					if excludeDirMap[keyName] || excludeDirMap[entry.Name()] {
+						logger.Printf("\t                   '%s' is '%s' in exclude directory list, ignore\n", fullPathName, keyName)
 						continue
 					}
 				}	
@@ -177,8 +177,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				{
 					fullPathName := filepath.Join(srcDir, entry.Name())
 					keyName := fullPathName[len(ABSSRCDIR)+1:]
-					if excludeFileMap[keyName] {
-						logger.Printf("\t               '%s' is '%s' in exclude file list, ignore\n", fullPathName, keyName)
+					if excludeFileMap[keyName] || excludeFileMap[entry.Name()] {
+						logger.Printf("\t                   '%s' is '%s' in exclude file list, ignore\n", fullPathName, keyName)
 						continue
 					}
 				}	
