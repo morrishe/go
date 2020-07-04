@@ -1,0 +1,17 @@
+#
+# each directory or file one line
+# start with "#" will be ignore
+# empty line will be ignore
+# "/" will be ignore
+#
+# dir_a/
+# dir_b/dir_c/
+# file
+# dira/dirb/fileabcdefg
+#
+#
+#
+sys/types.h
+bits/
+aio.h
+libacl.h

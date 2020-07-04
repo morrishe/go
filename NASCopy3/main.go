@@ -83,7 +83,8 @@ var euid = os.Geteuid()
 var ABSSRCDIR	string
 
 // not include the directorys and files in the 'NASCopy.exclude' which is default , per dir|file per line
-var excludeFrom	string
+var excludeFrom		string
+var exactExclude	bool
 var excludeDirMap = map[string]bool{}
 var excludeFileMap = map[string]bool{}
 
@@ -157,8 +158,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				{
 					fullPathName := filepath.Join(srcDir, entry.Name())
 					keyName := fullPathName[len(ABSSRCDIR)+1:]
-					if excludeDirMap[keyName] || excludeDirMap[entry.Name()] {
-						logger.Printf("\t                   '%s' is '%s' in exclude directory list, ignore\n", fullPathName, keyName)
+					if excludeDirMap[keyName] || (excludeDirMap[entry.Name()] && !exactExclude) {
+						logger.Printf("\t                   '%s' in exclude directory list, ignore\n", fullPathName)
 						continue
 					}
 				}	
@@ -177,8 +178,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				{
 					fullPathName := filepath.Join(srcDir, entry.Name())
 					keyName := fullPathName[len(ABSSRCDIR)+1:]
-					if excludeFileMap[keyName] || excludeFileMap[entry.Name()] {
-						logger.Printf("\t                   '%s' is '%s' in exclude file list, ignore\n", fullPathName, keyName)
+					if excludeFileMap[keyName] || (excludeFileMap[entry.Name()] && !exactExclude) {
+						logger.Printf("\t                   '%s' in exclude file list, ignore\n", fullPathName)
 						continue
 					}
 				}	
@@ -378,7 +379,8 @@ func main() {
 	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 null message, 1 for dir, >=2 for dir and files")
 	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
 	flag.BoolVar(&keepNewer, "keepNewer", false, "default override destination file, enable this option will keep *NEWER* destination file")
-	flag.StringVar(&excludeFrom, "excludeFrom", "NASCopy.exclude", "directory and file in this file is not been copied")
+	flag.StringVar(&excludeFrom, "excludeFrom", "NASCopy.exclude", "directory and file in this file is been ignore")
+	flag.BoolVar(&exactExclude, "exactExclude", false, "use with -excludeFrom, enable it and then only fullpath match is not copied")
 
         flag.Parse()
         args := flag.Args()
@@ -532,9 +534,9 @@ func main() {
 	if timeElasped > 0 {
 		speed = allFileCount / timeElasped
 	}
-        logger.Printf("\t Finished COPY ['%s'] to ['%s'], speed[%d/s], Elasped:[%d seconds]\n", absSrcDir, absDstDir, speed, timeElasped)
+        logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes <=> %d MB\n", allDirCount, allFileCount, allTotalSize, allTotalSize/(1024*1024))
+        logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes <=> %d MB, speed[%d/s], Elasped: [%d seconds]\n", allDirCount, allFileCount, allTotalSize, allTotalSize/(1024*1024), speed, timeElasped)
         logger.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes <=> %d MB, allUnsupport: %d, allSkip: %d, allErr: %d\n",
 			allCopyFileCount, allTotalCopySize, allTotalCopySize/(1024*1024), allUnsupportCount, allSkipCount, allErrCount)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
