@@ -20,11 +20,11 @@ import (
 	"os"
 	"syscall"
 	"fmt"
-	//"strings"
+	"strings"
 	"flag"
 	"log"
 	"io"
-	//"io/ioutil"
+	"io/ioutil"
 	"path/filepath"
 	"sync"
 	"time"
@@ -80,6 +80,38 @@ var verbose	int
 var readdirCount	int
 var keepNewer	bool
 var euid = os.Geteuid()
+var ABSSRCDIR	string
+
+// not include the directorys and files in the 'NASCopy.exclude' which is default , per dir|file per line
+var excludeFrom	string
+var excludeDirMap = map[string]bool{}
+var excludeFileMap = map[string]bool{}
+
+func parseExcludeFrom(exFrom string, dMap, fMap map[string]bool) error {
+	exBytes, exErr := ioutil.ReadFile(exFrom)
+	if exErr != nil {
+		// do nothing
+		return exErr
+	} else {
+		exStrings := strings.Split(string(exBytes), "\n")
+		for _, s := range exStrings {
+			if strings.HasPrefix(s, "#") { 
+				continue
+			}
+			if strings.HasSuffix(s, "/") {
+				s = s[:len(s)-1]
+				if len(s) > 0 {
+					dMap[s] = true
+				}
+			} else {
+				if len(s) > 0 {
+					fMap[s] = true
+				}
+			}
+		}
+	}
+	return exErr
+}
 
 /*  old readdir method
 func dirents(dir string) []os.FileInfo {
@@ -122,6 +154,14 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				continue
 			}
 			if entry.IsDir() {
+				{
+					fullPathName := filepath.Join(srcDir, entry.Name())
+					keyName := fullPathName[len(ABSSRCDIR)+1:]
+					if excludeDirMap[keyName] {
+						logger.Printf("\t               '%s' is '%s' in exclude directory list, ignore\n", fullPathName, keyName)
+						continue
+					}
+				}	
 				dirCount++
 				subSrcDir := filepath.Join(srcDir, entry.Name())
 				subDstDir := filepath.Join(dstDir, entry.Name())
@@ -134,6 +174,14 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				dp.dstDir = subDstDir
 				dpList = append(dpList, dp)
 			} else {
+				{
+					fullPathName := filepath.Join(srcDir, entry.Name())
+					keyName := fullPathName[len(ABSSRCDIR)+1:]
+					if excludeFileMap[keyName] {
+						logger.Printf("\t               '%s' is '%s' in exclude file list, ignore\n", fullPathName, keyName)
+						continue
+					}
+				}	
 				fileCount++
 				totalSize += entry.Size()
 				var fp FilePair
@@ -330,6 +378,7 @@ func main() {
 	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 null message, 1 for dir, >=2 for dir and files")
 	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
 	flag.BoolVar(&keepNewer, "keepNewer", false, "default override destination file, enable this option will keep *NEWER* destination file")
+	flag.StringVar(&excludeFrom, "excludeFrom", "NASCopy.exclude", "directory and file in this file is not been copied")
 
         flag.Parse()
         args := flag.Args()
@@ -356,6 +405,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ERROR: %s is not exists, Quit!\n", absSrcDir)
 		os.Exit(2)
 	}
+	ABSSRCDIR = absSrcDir
 	dstDir := args[1]
 	absDstDir, err := filepath.Abs(dstDir)
 	if err != nil {
@@ -364,10 +414,24 @@ func main() {
 	if _, err = os.Lstat(absDstDir);  os.IsNotExist(err) {
 		os.MkdirAll(absDstDir, 0755)
 	}
+	
+	if err = parseExcludeFrom(excludeFrom, excludeDirMap, excludeFileMap); err != nil {
+		//do nothing
+	}
+	var excludeDirList, excludeFileList	[]string
+	for d, _ := range excludeDirMap {
+		excludeDirList = append(excludeDirList, d)
+	} 
+	for f, _ := range excludeFileMap {
+		excludeFileList = append(excludeFileList, f)
+	} 
 
 	startTime := time.Now().Unix()
 	logger.Printf("\t #############################  BEGIN  #########################################################\n")
 	logger.Printf("\t User['%d'] Begin to COPY ['%s'] to ['%s'].....\n", euid, absSrcDir, absDstDir)
+	logger.Printf("\t File: ['%s'] has exclude list:\n", excludeFrom)
+	logger.Printf("\t Exclude Dir:  %v\n", excludeDirList)
+	logger.Printf("\t Exclude File: %v\n", excludeFileList)
 
 	dirSema := make(chan struct{}, dirWorkers)
 	fileSema := make(chan struct{}, fileWorkers)
@@ -443,6 +507,7 @@ func main() {
 	}()
 
 	var allDirCount, allFileCount, allTotalSize, allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount	int64
+	var timeElasped, speed int64
 	for dpi := range dpiChan {
 		allDirCount += dpi.dirCount
 		allFileCount += dpi.fileCount
@@ -452,23 +517,26 @@ func main() {
 		allUnsupportCount += dpi.unsupportCount
 		allSkipCount += dpi.skipCount
 		allErrCount += dpi.errCount
-		timeElasped := time.Now().Unix() - startTime
-		var speed int64
+		timeElasped = time.Now().Unix() - startTime
 		if timeElasped > 0 {
 			speed = allFileCount / timeElasped
 		}
 		if dpi.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        		logger.Printf("\t current progress: Files: [%d], allTotalSrcSize: [%d] bytes, dpiChan:[%d/%d], speeds[%d/s], Elasped[%d sec]\n", allFileCount, allTotalSize, len(dpiChan), dpiChanLen, speed, timeElasped)
+        		logger.Printf("\t current progress: Directorys: [%d], Files: [%d], allTotalSrcSize: [%d] bytes, dpiChan:[%d/%d], speed[%d/s], Elasped[%d seconds]\n", allDirCount, allFileCount, allTotalSize, len(dpiChan), dpiChanLen, speed, timeElasped)
         		logger.Printf("\t                   allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n", allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
 	}
-        logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
+	timeElasped = time.Now().Unix() - startTime
+	if timeElasped > 0 {
+		speed = allFileCount / timeElasped
+	}
+        logger.Printf("\t Finished COPY ['%s'] to ['%s'], speed[%d/s], Elasped:[%d seconds]\n", absSrcDir, absDstDir, speed, timeElasped)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes\n", allDirCount, allFileCount, allTotalSize)
-        logger.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n",
-			allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+        logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes <=> %d MB\n", allDirCount, allFileCount, allTotalSize, allTotalSize/(1024*1024))
+        logger.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes <=> %d MB, allUnsupport: %d, allSkip: %d, allErr: %d\n",
+			allCopyFileCount, allTotalCopySize, allTotalCopySize/(1024*1024), allUnsupportCount, allSkipCount, allErrCount)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
         logger.Printf("\t ############################### END #############################################################\n\n\n")
 
