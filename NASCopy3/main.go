@@ -526,9 +526,9 @@ func main() {
 		}
 		if dpi.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        		logger.Printf("\t current progress: Directorys: %s, Files: %s, allTotalSrcSize: %s bytes, dpiChan:[%d/%d], speed[%d/s], Elasped[%s seconds]\n", 
+        		logger.Printf("\t current progress: Directorys: [%s], Files: [%s], allTotalSrcSize: [%s] bytes, dpiChan:[%d/%d], speed[%d/s], Elasped[%s seconds]\n", 
 					V(allDirCount), V(allFileCount), V(allTotalSize), len(dpiChan), dpiChanLen, speed, V(timeElasped))
-        		logger.Printf("\t                   allCopyFileCount: %s, allTotalCopySize: %s bytes, allUnsupport: %s, allSkip: %s, allErr: %s\n", 
+        		logger.Printf("\t                   allCopyFileCount: [%s], allTotalCopySize: [%s] bytes, allUnsupport: [%s], allSkip: [%s], allErr: [%s]\n", 
 					V(allCopyFileCount), V(allTotalCopySize), V(allUnsupportCount), V(allSkipCount), V(allErrCount))
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
@@ -539,8 +539,8 @@ func main() {
 	}
         logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        logger.Printf("\t Summary: Directorys: %s, Files: %s, allTotalSrcSize: %s bytes, speed[%d/s], Elasped: [%s seconds]\n", V(allDirCount), V(allFileCount), V(allTotalSize), speed, V(timeElasped))
-        logger.Printf("\t          allCopyFileCount: %s, allTotalCopySize: %s bytes, allUnsupport: %s, allSkip: %s, allErr: %s\n", V(allCopyFileCount), V(allTotalCopySize), V(allUnsupportCount), V(allSkipCount), V(allErrCount))
+        logger.Printf("\t Summary: Directorys: [%s], Files: [%s], allTotalSrcSize: [%s] bytes, speed[%d/s], Elasped: [%s seconds]\n", V(allDirCount), V(allFileCount), V(allTotalSize), speed, V(timeElasped))
+        logger.Printf("\t          allCopyFileCount: [%s], allTotalCopySize: [%s] bytes, allUnsupport: [%s], allSkip: [%s], allErr: [%s]\n", V(allCopyFileCount), V(allTotalCopySize), V(allUnsupportCount), V(allSkipCount), V(allErrCount))
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
         logger.Printf("\t ############################### END #############################################################\n\n\n")
 
