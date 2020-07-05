@@ -1,17 +1,27 @@
+# Note: 
+#     1. one directory or file one line
+#     2. start with "#" will be ignore
+#        empty line will be ignore
+#        "/" will be ignore
+#     3.  default -exactExclude is false, then,  it is not only full-path match, but also
+#         directory entry which matched will be ignore, For Example:
+#             ./NASCopy3  /usr/include    mydir
+#            
+#        a.  bits/ is directory, it exist in /usr/include/bits/, /usr/include/c++/4.8.2/bits/ ...
+#            then /usr/include/bits and /usr/include/c++/4.8.2/bits both will be ignore
+#        b.  if -exactExclude is enable, then, only /usr/include/bits/ is be ignore, and /usr/include/c++/4.8.2/bits/
+#            will be copied to 'mydir'
 #
-# each directory or file one line
-# start with "#" will be ignore
-# empty line will be ignore
-# "/" will be ignore
-#
-# dir_a/
-# dir_b/dir_c/
-# file
-# dira/dirb/fileabcdefg
+#     4.  the item is relative path with $SRCdir, not absolute path in filesystem,  For Example:
+#             ./NASCopy3  /usr/include    mydir
+#            
+#                  bits/   is /usr/include/bits when -exactExclude is true
+#                           or /usr/include/bits, /usr/include/c++/4.8.2/bits ..., when -exactExclude is false
 #
 #
 #
-sys/types.h
-bits/
-aio.h
-libacl.h
+#Sample:
+#
+#sys/types.h
+#bits/
+#libacl.h
