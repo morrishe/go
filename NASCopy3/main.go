@@ -481,8 +481,9 @@ func main() {
 						} else {
 							logger.Printf("\t %s: finish copy '%s' to '%s'\n", taskId, dpi.srcDir, dpi.dstDir)
 						}
-						logger.Printf("\t %s: dirs[%d] files[%d], totalSize[%d]bytes copyFiles[%d] totalCopySize[%d]bytes unsupport[%d] skip[%d] err[%d]\n", 
-							taskId, dpi.dirCount, dpi.fileCount, dpi.totalSize, dpi.copyFileCount, dpi.totalCopySize, dpi.unsupportCount, dpi.skipCount, dpi.errCount)
+						logger.Printf("\t %s: dirs[%s] files[%s], totalSize[%s]bytes copyFiles[%s] totalCopySize[%s]bytes unsupport[%s] skip[%s] err[%s]\n", 
+							taskId, V(dpi.dirCount), V(dpi.fileCount), V(dpi.totalSize), V(dpi.copyFileCount),
+							V(dpi.totalCopySize), V(dpi.unsupportCount), V(dpi.skipCount), V(dpi.errCount))
 					}
 					/* Large directory need many-times readdir(), it should be restore source directory permission the last times invoke,
 					   otherwise when source directory is ownned by root, maybe not-root user has no permission to write the directory
@@ -525,8 +526,10 @@ func main() {
 		}
 		if dpi.copyFileCount > 0 {
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        		logger.Printf("\t current progress: Directorys: [%d], Files: [%d], allTotalSrcSize: [%d] bytes, dpiChan:[%d/%d], speed[%d/s], Elasped[%d seconds]\n", allDirCount, allFileCount, allTotalSize, len(dpiChan), dpiChanLen, speed, timeElasped)
-        		logger.Printf("\t                   allCopyFileCount: %d, allTotalCopySize: %d bytes, allUnsupport: %d, allSkip: %d, allErr: %d\n", allCopyFileCount, allTotalCopySize, allUnsupportCount, allSkipCount, allErrCount)
+        		logger.Printf("\t current progress: Directorys: %s, Files: %s, allTotalSrcSize: %s bytes, dpiChan:[%d/%d], speed[%d/s], Elasped[%s seconds]\n", 
+					V(allDirCount), V(allFileCount), V(allTotalSize), len(dpiChan), dpiChanLen, speed, V(timeElasped))
+        		logger.Printf("\t                   allCopyFileCount: %s, allTotalCopySize: %s bytes, allUnsupport: %s, allSkip: %s, allErr: %s\n", 
+					V(allCopyFileCount), V(allTotalCopySize), V(allUnsupportCount), V(allSkipCount), V(allErrCount))
         		logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
 		}
 	}
@@ -536,10 +539,23 @@ func main() {
 	}
         logger.Printf("\t Finished COPY ['%s'] to ['%s']\n", absSrcDir, absDstDir)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        logger.Printf("\t Summary: Directorys: %d, Files: %d, allTotalSrcSize: %d bytes <=> %d MB, speed[%d/s], Elasped: [%d seconds]\n", allDirCount, allFileCount, allTotalSize, allTotalSize/(1024*1024), speed, timeElasped)
-        logger.Printf("\t          allCopyFileCount: %d, allTotalCopySize: %d bytes <=> %d MB, allUnsupport: %d, allSkip: %d, allErr: %d\n",
-			allCopyFileCount, allTotalCopySize, allTotalCopySize/(1024*1024), allUnsupportCount, allSkipCount, allErrCount)
+        logger.Printf("\t Summary: Directorys: %s, Files: %s, allTotalSrcSize: %s bytes, speed[%d/s], Elasped: [%s seconds]\n", V(allDirCount), V(allFileCount), V(allTotalSize), speed, V(timeElasped))
+        logger.Printf("\t          allCopyFileCount: %s, allTotalCopySize: %s bytes, allUnsupport: %s, allSkip: %s, allErr: %s\n", V(allCopyFileCount), V(allTotalCopySize), V(allUnsupportCount), V(allSkipCount), V(allErrCount))
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
         logger.Printf("\t ############################### END #############################################################\n\n\n")
 
 }
+
+
+func comma(s string) string {
+        n := len(s)
+        if n <= 3 {
+                return s
+        }
+        return comma(s[:n-3]) + "," + s[n-3:]
+}
+
+func V(number int64) string {
+	return comma(fmt.Sprintf("%d", number))
+}
+	
