@@ -3,21 +3,10 @@
 #     2. start with "#" will be ignore
 #        empty line will be ignore
 #        "/" will be ignore
-#     3.  default -exactExclude is false, then,  it is not only full-path match, but also
-#         directory entry which matched will be ignore, For Example:
-#             ./NASCopy3  /usr/include    mydir
+#        directory must be end with "/", such as:  /tmp/foodir/, otherwise is as file
 #            
-#        a.  bits/ is directory, it exist in /usr/include/bits/, /usr/include/c++/4.8.2/bits/ ...
-#            then /usr/include/bits and /usr/include/c++/4.8.2/bits both will be ignore
-#        b.  if -exactExclude is enable, then, only /usr/include/bits/ is be ignore, and /usr/include/c++/4.8.2/bits/
-#            will be copied to 'mydir'
-#
-#     4.  the item is relative path with $SRCdir, not absolute path in filesystem,  For Example:
-#             ./NASCopy3  /usr/include    mydir
+#     3.  the item is absolute path in filesystem
 #            
-#                  bits/   is /usr/include/bits when -exactExclude is true
-#                           or /usr/include/bits, /usr/include/c++/4.8.2/bits ..., when -exactExclude is false
-#
 #
 #
 #Sample:

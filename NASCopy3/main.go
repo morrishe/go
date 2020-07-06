@@ -80,11 +80,9 @@ var verbose	int
 var readdirCount	int
 var keepNewer	bool
 var euid = os.Geteuid()
-var ABSSRCDIR	string
 
 // not include the directorys and files in the 'NASCopy.exclude' which is default , per dir|file per line
 var excludeFrom		string
-var exactExclude	bool
 var excludeDirMap = map[string]bool{}
 var excludeFileMap = map[string]bool{}
 
@@ -157,9 +155,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			if entry.IsDir() {
 				{
 					fullPathName := filepath.Join(srcDir, entry.Name())
-					keyName := fullPathName[len(ABSSRCDIR)+1:]
-					if excludeDirMap[keyName] || (!exactExclude && excludeDirMap[entry.Name()]) {
-						logger.Printf("\t                   '%s'['%s'] in exclude directory list, ignore\n", fullPathName, keyName)
+					if excludeDirMap[fullPathName] {
+						logger.Printf("\t                   '%s' in exclude directory list, ignore\n", fullPathName)
 						continue
 					}
 				}	
@@ -177,9 +174,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 			} else {
 				{
 					fullPathName := filepath.Join(srcDir, entry.Name())
-					keyName := fullPathName[len(ABSSRCDIR)+1:]
-					if excludeFileMap[keyName] || (!exactExclude && excludeFileMap[entry.Name()]) {
-						logger.Printf("\t                   '%s'['%s'] in exclude file list, ignore\n", fullPathName, keyName)
+					if excludeFileMap[fullPathName] {
+						logger.Printf("\t                   '%s' in exclude file list, ignore\n", fullPathName)
 						continue
 					}
 				}	
@@ -380,7 +376,6 @@ func main() {
 	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
 	flag.BoolVar(&keepNewer, "keepNewer", false, "default override destination file, enable this option will keep *NEWER* destination file")
 	flag.StringVar(&excludeFrom, "excludeFrom", "NASCopy.exclude", "directory and file in this file is been ignore")
-	flag.BoolVar(&exactExclude, "exactExclude", false, "use with -excludeFrom, enable it and then only fullpath match is not copied")
 
         flag.Parse()
         args := flag.Args()
@@ -407,7 +402,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ERROR: %s is not exists, Quit!\n", absSrcDir)
 		os.Exit(2)
 	}
-	ABSSRCDIR = absSrcDir
 	dstDir := args[1]
 	absDstDir, err := filepath.Abs(dstDir)
 	if err != nil {
