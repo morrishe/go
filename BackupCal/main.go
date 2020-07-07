@@ -16,7 +16,9 @@ type DirPairInfo struct {
         dstDir          string
 	fileCount	int64
 	dirCount	int64
-	totalSize	int64
+	totalCopySize	int64
+	totalSkipSize	int64
+	skipFileCount	int64
 }
 
 type DirPair struct {
@@ -30,7 +32,7 @@ type FilePair struct {
 }
 
 const (
-	DIRWORKERS = 4
+	DIRWORKERS = 32
 	READDIRCOUNT = 4096
 )
 
@@ -50,7 +52,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 	var dpList = make([]DirPair, 0)
 	for {
 		var fpList = make([]FilePair, 0)
-		var dirCount, fileCount, totalSize int64
+		var dirCount, fileCount, totalCopySize, skipFileCount, totalSkipSize int64
 
 		entrys, err := dirF.Readdir(readdirCount)
 		if err != nil && err != io.EOF {
@@ -76,10 +78,12 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
   				sfi, err = os.Lstat(fp.srcFile)
   				dfi, err = os.Lstat(fp.dstFile)
                 		if os.IsNotExist(err) { 
-					totalSize += entry.Size()
+					totalCopySize += entry.Size()
                 		} else if dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
-					totalSize += entry.Size()
+					totalCopySize += entry.Size()
 				} else {
+					skipFileCount++
+					totalSkipSize += entry.Size()	
 					continue
 				}
 				fpList = append(fpList, fp)
@@ -89,9 +93,11 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 		var dpi	DirPairInfo
 		dpi.srcDir = srcDir
 		dpi.dstDir = dstDir
-		dpi.totalSize = totalSize
+		dpi.totalCopySize = totalCopySize
 		dpi.dirCount = dirCount
 		dpi.fileCount = fileCount
+		dpi.skipFileCount = skipFileCount
+		dpi.totalSkipSize = totalSkipSize
 
 		dfPair := make(map[DirPairInfo][]FilePair)
 		dfPair[dpi] = fpList
@@ -168,24 +174,46 @@ func main() {
 
 	var dpi DirPairInfo
 	var allFpList, fpList []FilePair
-	var allDirCount, allFileCount, allTotalSize, timeElasped int64
+	var allDirCount, allFileCount, allTotalCopySize, allTotalSkipSize, allSkipFileCount, timeElasped int64
 	for dpifp := range dfPairChan {
 		for dpi, fpList = range dpifp {
 			allDirCount += dpi.dirCount
 			allFileCount += dpi.fileCount
-			allTotalSize += dpi.totalSize
+			allTotalCopySize += dpi.totalCopySize
+			allTotalSkipSize += dpi.totalSkipSize
+			allSkipFileCount += dpi.skipFileCount
 			allFpList = append(allFpList, fpList...)
+			timeElasped = time.Now().Unix() - startTime
+        		fmt.Printf("\t Current progress: directorys: [%s], allCopyFiles: [%s], allTotalCopySize: [%s], allSkipFiles: [%s], allTotalSkipSize: [%s] bytes, Elasped: [%d seconds]\n", V(allDirCount), 
+				V(allFileCount), V(allTotalCopySize), V(allSkipFileCount), V(allTotalSkipSize), timeElasped)
 		}
 	}
 
 	timeElasped = time.Now().Unix() - startTime
         logger.Printf("\t Finished statistics ['%s'] to ['%s']\n", absSrcDir, absDstDir)
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
-        logger.Printf("\t Summary: Directorys: [%d], Files: [%d], allTotalSrcSize: [%d] bytes, Elasped: [%d seconds]\n", allDirCount, allFileCount, allTotalSize, timeElasped)
+        logger.Printf("\t Summary: Directorys: [%d], Files: [%d], allTotalCopySize: [%d] bytes, allSkipFiles: [%d], allTotalSkipSize: [%d] bytes, Elasped: [%d seconds]\n", allDirCount, allFileCount, allTotalCopySize, 
+			allSkipFileCount, allTotalSkipSize, timeElasped)
+	logger.Printf("\t NEED COPY FILES as below:\n")
 	for _, fp := range allFpList {
 		logger.Printf("\t %s, %s\n", fp.srcFile, fp.dstFile)
 	} 
+	logger.Printf("\t End of NEED COPY FILES\n")
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
         logger.Printf("\t ############################### END #############################################################\n\n\n")
 
 }
+
+
+func comma(s string) string {
+        n := len(s)
+        if n <= 3 {
+                return s
+        }
+        return comma(s[:n-3]) + "," + s[n-3:]
+}
+
+func V(number int64) string {
+        return comma(fmt.Sprintf("%d", number))
+}
+
