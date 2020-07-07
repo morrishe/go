@@ -29,6 +29,7 @@ type DirPair struct {
 type FilePair struct {
         srcFile         string
         dstFile         string
+	fileSize	int64
 }
 
 const (
@@ -75,6 +76,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 				var sfi, dfi os.FileInfo
 				fp.srcFile = filepath.Join(srcDir, entry.Name())
 				fp.dstFile = filepath.Join(dstDir, entry.Name())
+				fp.fileSize = entry.Size()
   				sfi, err = os.Lstat(fp.srcFile)
   				dfi, err = os.Lstat(fp.dstFile)
                 		if os.IsNotExist(err) { 
@@ -196,7 +198,7 @@ func main() {
 			allSkipFileCount, allTotalSkipSize, timeElasped)
 	logger.Printf("\t NEED COPY FILES as below:\n")
 	for _, fp := range allFpList {
-		logger.Printf("\t %s, %s\n", fp.srcFile, fp.dstFile)
+		logger.Printf("\t [%s], [%s], size: [%d] bytes\n", fp.srcFile, fp.dstFile, fp.fileSize)
 	} 
 	logger.Printf("\t End of NEED COPY FILES\n")
         logger.Printf("\t ----------------------------------------------------------------------------------------------------------------------------------------------------\n")
