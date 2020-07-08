@@ -81,7 +81,7 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
   				dfi, err = os.Lstat(fp.dstFile)
                 		if os.IsNotExist(err) { 
 					totalCopySize += entry.Size()
-                		} else if dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
+                		} else if dfi.ModTime().Unix() != sfi.ModTime().Unix() || dfi.Size() != sfi.Size() {
 					totalCopySize += entry.Size()
 				} else {
 					skipFileCount++
