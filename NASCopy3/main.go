@@ -290,7 +290,7 @@ func doFileCopy(dstFile, srcFile string) FileNode {
 		dfi, err = os.Lstat(dstFile)
 		if os.IsNotExist(err) { 
 			needCopy = true
-		} else if dfi.ModTime() != sfi.ModTime() || dfi.Size() != sfi.Size() {
+		} else if dfi.Size() != sfi.Size() || dfi.ModTime().Unix() != sfi.ModTime().Unix() {
 			needCopy = true
 			if keepNewer == true && dfi.ModTime().Unix() > sfi.ModTime().Unix() { 
 				needCopy = false
@@ -344,7 +344,9 @@ func copyFileDirAttr(dst string, src string) error {
 			mtim := st.Mtim
 
 			atime := time.Unix(atim.Sec, atim.Nsec)
-			mtime := time.Unix(mtim.Sec, mtim.Nsec)
+			//mtime := time.Unix(mtim.Sec, mtim.Nsec)
+			// rsync make the mtime.Nsec is 0
+			mtime := time.Unix(mtim.Sec, 0)
 			mode := fi.Mode()
 			if mode&os.ModeSymlink == 0 { //not symlink
 				if e := os.Chmod(dst, mode); e != nil {
