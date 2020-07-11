@@ -459,7 +459,9 @@ func main() {
 					var tmp	DirPair
 					tmp.srcDir = dpi.srcDir
 					tmp.dstDir = dpi.dstDir
-					largeDPMap[tmp]++
+					if len(fpList) == readdirCount {
+						largeDPMap[tmp]++
+					}
 					largeDPMutex.Unlock()
 				}
 
@@ -489,7 +491,9 @@ func main() {
 						var tmp DirPair
 						tmp.srcDir = dpi.srcDir
 						tmp.dstDir = dpi.dstDir
-						largeDPMap[tmp]--
+						if largeDPMap[tmp] > 0 && len(fpList) == readdirCount {
+							largeDPMap[tmp]--
+						}
 						if largeDPMap[tmp] == 0 {
 							copyFileDirAttr(tmp.dstDir, tmp.srcDir)
 							delete(largeDPMap, tmp)
