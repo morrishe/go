@@ -454,16 +454,14 @@ func main() {
 				nFile.Add(1)
 				fileSema <- struct{}{}
 
-				if euid != 0 {
-					largeDPMutex.Lock()	
-					var tmp	DirPair
-					tmp.srcDir = dpi.srcDir
-					tmp.dstDir = dpi.dstDir
-					if len(fpList) == readdirCount {
-						largeDPMap[tmp]++
-					}
-					largeDPMutex.Unlock()
+				largeDPMutex.Lock()	
+				var tmp	DirPair
+				tmp.srcDir = dpi.srcDir
+				tmp.dstDir = dpi.dstDir
+				if len(fpList) == readdirCount {
+					largeDPMap[tmp]++
 				}
+				largeDPMutex.Unlock()
 
 				go func() {
 					defer nFile.Done()
@@ -486,22 +484,18 @@ func main() {
 					/* Large directory need many-times readdir(), it should be restore source directory permission the last times invoke,
 					   otherwise when source directory is ownned by root, maybe not-root user has no permission to write the directory
 					 */
-					if euid != 0 {
-						largeDPMutex.Lock()	
-						var tmp DirPair
-						tmp.srcDir = dpi.srcDir
-						tmp.dstDir = dpi.dstDir
-						if largeDPMap[tmp] > 0 && len(fpList) == readdirCount {
-							largeDPMap[tmp]--
-						}
-						if largeDPMap[tmp] == 0 {
-							copyFileDirAttr(tmp.dstDir, tmp.srcDir)
-							delete(largeDPMap, tmp)
-						}
-						largeDPMutex.Unlock()
-					} else {
-						copyFileDirAttr(dpi.dstDir, dpi.srcDir)
+					largeDPMutex.Lock()	
+					var tmp DirPair
+					tmp.srcDir = dpi.srcDir
+					tmp.dstDir = dpi.dstDir
+					if largeDPMap[tmp] > 0 && len(fpList) == readdirCount {
+						largeDPMap[tmp]--
 					}
+					if largeDPMap[tmp] == 0 {
+						copyFileDirAttr(tmp.dstDir, tmp.srcDir)
+						delete(largeDPMap, tmp)
+					}
+					largeDPMutex.Unlock()
 				}()
 			}
 		}
