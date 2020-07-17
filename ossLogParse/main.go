@@ -18,7 +18,7 @@ import (
 typedef AccountSS {	/* Account Status Statistics  */
 	Method		string	/* GET, PUT, DELETE, POST, HEAD, OPTIONS ... etc */
 	StatusCode	string	/* 200, 201, 204, 401, 403, 404, 499, 500, 501, 502 ... etc */
-	Client		string	/* http client name */
+	Client		[]string	/* http client name slice, some account may have serval http client */
 	Count		int64	
 	AvgTime		int64	/* Average response time, in ms */
 	MaxTime		int64
@@ -40,12 +40,12 @@ type AccountLogKey struct {
 }
 
 const (
-	WORKERS = 8
+	WORKERS = 16
 	READBUFFER = 1024 * 1024 
 )
 
 var workers	int
-// log file, default '/tmp/AccountLogParse.log'
+// output result file, default '/tmp/AccountLogParse.log'
 var outputFile	string
 var logger	*log.Logger
 var verbose	int
@@ -54,7 +54,7 @@ var accountSSMap = map[AccountLogKey]AccountLogValue{}
 var accountSSMapMutex	sync.Mutex
 
 /*
-func parseExcludeFrom(exFrom string, dMap, fMap map[string]bool) error {
+func parseConfigFile(exFrom string, dMap, fMap map[string]bool) error {
 	exBytes, exErr := ioutil.ReadFile(exFrom)
 	if exErr != nil {
 		// do nothing
@@ -81,6 +81,21 @@ func parseExcludeFrom(exFrom string, dMap, fMap map[string]bool) error {
 }
 */
 
+func comma(s string) string {
+        n := len(s)
+        if n <= 3 {
+                return s
+        }
+        return comma(s[:n-3]) + "," + s[n-3:]
+}
+
+func V(number int64) string {
+	return comma(fmt.Sprintf("%d", number))
+}
+
+func parseLogFile()
+
+
 func main() {
 	flag.IntVar(&workers, "workers", WORKERS, "concurrent goroutine workers")
 	flag.StringVar(&configFile, "config", "account_log_parse.conf", "account log parse config file")
@@ -89,7 +104,7 @@ func main() {
         flag.Parse()
         args := flag.Args()
         if len(args) != 1 {
-		fmt.Fprintf(os.Stderr, "USAGE: %s [options] LogFile\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "USAGE: %s [options] OutputFile\n", os.Args[0])
     		flag.PrintDefaults()
 		os.Exit(1)
         }
@@ -103,10 +118,17 @@ func main() {
 	logger = log.New(l, "", log.LstdFlags)
 
 	/*
-	if err = parseExcludeFrom(excludeFrom, excludeDirMap, excludeFileMap); err != nil {
+	if err = parseConfigFile(excludeFrom, excludeDirMap, excludeFileMap); err != nil {
 		//do nothing
 	}
 	*/
+
+	file, err = os.Open(args[1]) // For read access.
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
 
 	workersSema := make(chan struct{}, workers)
         var nWorkers sync.WaitGroup
@@ -114,22 +136,11 @@ func main() {
 	nWorkers.Add(1)
        	workersSema <- struct{}{}
 
+	go parseLogFile(file, workersSema)
+	go parseLogFile(file, mapChan, workersSema)
+
         go func() {
-                nDir.Wait()
+                nWorkers.Wait()
                 close(dfPairChan)
         }()
 }
-
-
-func comma(s string) string {
-        n := len(s)
-        if n <= 3 {
-                return s
-        }
-        return comma(s[:n-3]) + "," + s[n-3:]
-}
-
-func V(number int64) string {
-	return comma(fmt.Sprintf("%d", number))
-}
-	
