@@ -135,6 +135,8 @@ func walkDir(dstDir string, srcDir string,  nDir *sync.WaitGroup, dfPairChan cha
 	dirF, err := os.Open(srcDir)
 	if err != nil {
                 logger.Printf("\t os.Open('%s') error: %v\n", dstDir, err)
+		// when sub-directory no permission, the attribute and mod_time should be set the same with source directory
+		copyFileDirAttr(dstDir, srcDir)
                 return
 	}
 	var dpList = make([]DirPair, 0)
