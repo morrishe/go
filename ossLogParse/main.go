@@ -2,20 +2,18 @@ package main
 
 import (
 	"os"
-	"syscall"
 	"fmt"
-	"strings"
+	//"strings"
 	"flag"
 	"log"
 	"io"
-	"io/ioutil"
-	"path/filepath"
+	//"io/ioutil"
+	//"path/filepath"
 	"sync"
-	"time"
-	"crypto/md5"
+	"bufio"
 )
 
-typedef AccountSS {	/* Account Status Statistics  */
+type AccountSS struct {	/* Account Status Statistics  */
 	Method		string	/* GET, PUT, DELETE, POST, HEAD, OPTIONS ... etc */
 	StatusCode	string	/* 200, 201, 204, 401, 403, 404, 499, 500, 501, 502 ... etc */
 	Client		[]string	/* http client name slice, some account may have serval http client */
@@ -31,7 +29,7 @@ typedef AccountSS {	/* Account Status Statistics  */
 
 type AccountLogValue struct {
 	AccountName	string
-	Ass		AcountSS
+	Ass		AccountSS
 }
 
 type AccountLogKey struct {
@@ -41,17 +39,49 @@ type AccountLogKey struct {
 
 const (
 	WORKERS = 16
-	READBUFFER = 1024 * 1024 
+	LINESOFWORKER = 4096
 )
 
+const ( 
+	LOGDate = iota
+	LOGHostname
+	LOGApplication
+	LOGHttpMethod
+	LOGUrl
+	LOGHttpVersion
+	LOGHttpStatus
+	LOGResponseTime
+	LOGHttpSize
+	LOGNoop1
+	LOGNoop2
+	LOGHttpClient
+	LOGSrcAddr
+	LOGNoop3
+	LOGDstAddr
+)
+
+
+
+var logDateIndex 		int = LOGDate
+var logHostnameIndex		int = LOGHostname
+var logApplicationIndex		int = LOGApplication
+var logHttpMethodIndex		int = LOGHttpMethod
+var logUrlIndex			int = LOGUrl
+var logHttpStatusIndex		int = LOGHttpStatus
+var logHttpResponseTimeIndex	int = LOGResponseTime
+var logHttpSizeIndex		int = LOGHttpSize
+var logHttpClientIndex		int = LOGHttpClient
+
+
 var workers	int
-// output result file, default '/tmp/AccountLogParse.log'
+// output result file, default "/tmp/AccountLogParseResult"
 var outputFile	string
 var logger	*log.Logger
 var verbose	int
 var readBuffer	int
 var accountSSMap = map[AccountLogKey]AccountLogValue{}
 var accountSSMapMutex	sync.Mutex
+var configFile	string
 
 /*
 func parseConfigFile(exFrom string, dMap, fMap map[string]bool) error {
@@ -93,13 +123,66 @@ func V(number int64) string {
 	return comma(fmt.Sprintf("%d", number))
 }
 
-func parseLogFile()
+func logReadLine(br *bufio.Reader) (string, error) {
+	line, e := br.ReadString('\n')
+	if e == nil {
+		if len(line) > 0 {
+			return line[:len(line)-1], nil
+		} else {
+			return "", nil
+		}
+	}
+	if e == io.EOF {
+		if len(line) > 0 && line[len(line)-1:] == "\n" {
+			return line[:len(line)-1], io.EOF
+		} else {
+			return "", io.EOF
+		}
+	}
+	return "", io.EOF
+}
+
+func parseLogFile(br *bufio.Reader, nWorkers *sync.WaitGroup, mapChan chan<- map[AccountLogKey]AccountLogValue, workersSema chan struct{}) {
+	for {
+		var lines = make([]string, 0)
+
+		line, err := logReadLine(br)
+		if len(line) > 0 {
+			lines = append(lines, line)
+		}
+		if len(lines) > LINESOFWORKER {
+			nWorkers.Add(1)
+			workersSema <- struct{}{}
+			go parseLines(lines[:LINESOFWORKER], nWorkers, mapChan, workersSema)
+			lines = lines[LINESOFWORKER:]
+		}
+		if err == io.EOF {
+			if len(lines) > 0 {
+				nWorkers.Add(1)
+				workersSema <- struct{}{}
+				go parseLines(lines, nWorkers, mapChan, workersSema)
+			}
+			break
+		}
+	}
+}
+
+
+func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[AccountLogKey]AccountLogValue, workersSema chan struct{}) {
+	defer nWorkers.Done()
+	defer func() { <-workersSema }()
+	for _, line := range lines {
+		fmt.Println(line)
+	}
+	
+
+}
 
 
 func main() {
 	flag.IntVar(&workers, "workers", WORKERS, "concurrent goroutine workers")
-	flag.StringVar(&configFile, "config", "account_log_parse.conf", "account log parse config file")
-	flag.StringVar(&output, "output", "/tmp/account_log_result", "account log parse result file")
+	flag.StringVar(&configFile, "config", "AccountLogParse.conf", "account log parse config file")
+	flag.StringVar(&outputFile, "output", "/tmp/AccountLogParseResult", "account log parse result file")
 
         flag.Parse()
         args := flag.Args()
@@ -123,24 +206,31 @@ func main() {
 	}
 	*/
 
-	file, err = os.Open(args[1]) // For read access.
+	file, err := os.Open(args[1]) // For read access.
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer file.Close()
-
+	br := bufio.NewReader(file)
 
 	workersSema := make(chan struct{}, workers)
         var nWorkers sync.WaitGroup
 
 	nWorkers.Add(1)
        	workersSema <- struct{}{}
+	mapChan := make(chan map[AccountLogKey]AccountLogValue, workers/2)
 
-	go parseLogFile(file, workersSema)
-	go parseLogFile(file, mapChan, workersSema)
+	go parseLogFile(br, &nWorkers, mapChan, workersSema)
 
         go func() {
                 nWorkers.Wait()
-                close(dfPairChan)
+                close(mapChan)
         }()
+
+        for v:= range mapChan {
+		fmt.Println(v)
+	}
+	
+	fmt.Printf("\t Finish parse\n")
+
 }
