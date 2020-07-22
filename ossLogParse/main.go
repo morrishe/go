@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 	"fmt"
-	//"strings"
+	"strings"
 	"flag"
 	"log"
 	"io"
@@ -34,18 +34,19 @@ type AccountLogValue struct {
 
 type AccountLogKey struct {
 	AccountName	string
+	srcIp		string
 	timeHMS		string		/* hour: 08:00:00-08:59:59, minute: __:08:00-__:08:59,  second: __:__:00-__:__:00 */
 }
 
 const (
 	WORKERS = 16
-	LINESOFWORKER = 4096
+	LINESOFPERWORKER = 4096
 )
 
 const ( 
 	LOGDate = iota
 	LOGHostname
-	LOGApplication
+	LOGServerName
 	LOGHttpMethod
 	LOGUrl
 	LOGHttpVersion
@@ -64,13 +65,14 @@ const (
 
 var logDateIndex 		int = LOGDate
 var logHostnameIndex		int = LOGHostname
-var logApplicationIndex		int = LOGApplication
+var logServerNameIndex		int = LOGServerName
 var logHttpMethodIndex		int = LOGHttpMethod
 var logUrlIndex			int = LOGUrl
 var logHttpStatusIndex		int = LOGHttpStatus
 var logHttpResponseTimeIndex	int = LOGResponseTime
 var logHttpSizeIndex		int = LOGHttpSize
 var logHttpClientIndex		int = LOGHttpClient
+var logSrcAddr			int = LOGSrcAddr
 
 
 var workers	int
@@ -143,18 +145,20 @@ func logReadLine(br *bufio.Reader) (string, error) {
 }
 
 func parseLogFile(br *bufio.Reader, nWorkers *sync.WaitGroup, mapChan chan<- map[AccountLogKey]AccountLogValue, workersSema chan struct{}) {
-	for {
-		var lines = make([]string, 0)
+	defer nWorkers.Done()
+	defer func() { <-workersSema }()
 
+	var lines = make([]string, 0)
+	for {
 		line, err := logReadLine(br)
 		if len(line) > 0 {
 			lines = append(lines, line)
 		}
-		if len(lines) > LINESOFWORKER {
+		if len(lines) > LINESOFPERWORKER {
 			nWorkers.Add(1)
 			workersSema <- struct{}{}
-			go parseLines(lines[:LINESOFWORKER], nWorkers, mapChan, workersSema)
-			lines = lines[LINESOFWORKER:]
+			go parseLines(lines[:LINESOFPERWORKER], nWorkers, mapChan, workersSema)
+			lines = lines[LINESOFPERWORKER:]
 		}
 		if err == io.EOF {
 			if len(lines) > 0 {
@@ -167,15 +171,32 @@ func parseLogFile(br *bufio.Reader, nWorkers *sync.WaitGroup, mapChan chan<- map
 	}
 }
 
-
 func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[AccountLogKey]AccountLogValue, workersSema chan struct{}) {
 	defer nWorkers.Done()
 	defer func() { <-workersSema }()
-	for _, line := range lines {
-		fmt.Println(line)
-	}
-	
 
+	accountMap := map[AccountLogKey]AccountLogValue{}
+	for _, line := range lines {
+		var k AccountLogKey
+		var v AccountLogValue
+		words := strings.Split(line, " ")
+		if !strings.Contains(words[LOGUrl], "AUTH_") {
+			continue
+		}
+		k.AccountName = getAccountFromUrl(words[LOGUrl])
+		fmt.Printf("%s\n", k.AccountName)
+		accountMap[k] = v
+	}
+}
+
+func getAccountFromUrl(url string) string {
+	words := strings.Split(url, "/")
+	return words[2]
+}
+
+func getHourFromDate(date string) string {
+	//words := strings.Split(date, )
+	return ""
 }
 
 
@@ -187,7 +208,7 @@ func main() {
         flag.Parse()
         args := flag.Args()
         if len(args) != 1 {
-		fmt.Fprintf(os.Stderr, "USAGE: %s [options] OutputFile\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "USAGE: %s [options] LogFile\n", os.Args[0])
     		flag.PrintDefaults()
 		os.Exit(1)
         }
@@ -206,7 +227,8 @@ func main() {
 	}
 	*/
 
-	file, err := os.Open(args[1]) // For read access.
+	
+	file, err := os.Open(args[0]) // For read access.
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -220,7 +242,7 @@ func main() {
        	workersSema <- struct{}{}
 	mapChan := make(chan map[AccountLogKey]AccountLogValue, workers/2)
 
-	go parseLogFile(br, &nWorkers, mapChan, workersSema)
+	parseLogFile(br, &nWorkers, mapChan, workersSema)
 
         go func() {
                 nWorkers.Wait()
