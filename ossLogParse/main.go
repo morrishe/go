@@ -13,10 +13,9 @@ import (
 	"bufio"
 )
 
-type AccountSS struct {	/* Account Status Statistics  */
+type AccountLogValue struct {	/* Account Status Statistics  */
 	Method		string	/* GET, PUT, DELETE, POST, HEAD, OPTIONS ... etc */
 	StatusCode	string	/* 200, 201, 204, 401, 403, 404, 499, 500, 501, 502 ... etc */
-	Client		[]string	/* http client name slice, some account may have serval http client */
 	Count		int64	
 	AvgTime		int64	/* Average response time, in ms */
 	MaxTime		int64
@@ -27,14 +26,8 @@ type AccountSS struct {	/* Account Status Statistics  */
 	TotalSize	int64
 }
 
-type AccountLogValue struct {
-	AccountName	string
-	Ass		AccountSS
-}
-
 type AccountLogKey struct {
 	AccountName	string
-	srcIp		string
 	timeHMS		string		/* hour: 08:00:00-08:59:59, minute: __:08:00-__:08:59,  second: __:__:00-__:__:00 */
 }
 
@@ -56,9 +49,6 @@ const (
 	LOGNoop1
 	LOGNoop2
 	LOGHttpClient
-	LOGSrcAddr
-	LOGNoop3
-	LOGDstAddr
 )
 
 
@@ -72,7 +62,6 @@ var logHttpStatusIndex		int = LOGHttpStatus
 var logHttpResponseTimeIndex	int = LOGResponseTime
 var logHttpSizeIndex		int = LOGHttpSize
 var logHttpClientIndex		int = LOGHttpClient
-var logSrcAddr			int = LOGSrcAddr
 
 
 var workers	int
@@ -175,18 +164,26 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
 	defer nWorkers.Done()
 	defer func() { <-workersSema }()
 
-	accountMap := map[AccountLogKey]AccountLogValue{}
+	var kh, km, ks AccountLogKey
+	var vh, vm, vs []AccountLogValue
+	accountMap := map[AccountLogKey][]AccountLogValue{}
+
 	for _, line := range lines {
-		var k AccountLogKey
-		var v AccountLogValue
 		words := strings.Split(line, " ")
 		if !strings.Contains(words[LOGUrl], "AUTH_") {
 			continue
 		}
-		k.AccountName = getAccountFromUrl(words[LOGUrl])
-		fmt.Printf("%s\n", k.AccountName)
-		accountMap[k] = v
+		kh.AccountName = getAccountFromUrl(words[LOGUrl])
+		km.AccountName = getAccountFromUrl(words[LOGUrl])
+		ks.AccountName = getAccountFromUrl(words[LOGUrl])
+		kh.timeHMS = getHourFromDate(words[LOGDate])
+		km.timeHMS = getHourMinuteFromDate(words[LOGDate])
+		ks.timeHMS = getHourMinuteSecondFromDate(words[LOGDate])
 	}
+	accountMap[kh] = vh
+	accountMap[km] = vm
+	accountMap[ks] = vs
+	mapChan <- accountMap
 }
 
 func getAccountFromUrl(url string) string {
@@ -195,8 +192,24 @@ func getAccountFromUrl(url string) string {
 }
 
 func getHourFromDate(date string) string {
-	//words := strings.Split(date, )
-	return ""
+	words := strings.Split(date, ":")
+	tmp := words[0]
+	tmp = tmp[len(tmp)-2:]
+	return tmp + ":00:00-" + tmp + ":59:59"
+}
+
+func getHourMinuteFromDate(date string) string {
+	words := strings.Split(date, ":")
+	tmp := words[0] + ":" + words[1]
+	tmp = tmp[len(tmp)-5:]
+	return tmp + ":00-" + tmp + ":59"
+}
+
+func getHourMinuteSecondFromDate(date string) string {
+	words := strings.Split(date, ":")
+	tmp := words[0] + ":" + words[1] + ":" + words[2][:2]
+	tmp = tmp[len(tmp)-8:]
+	return tmp + "-" + tmp
 }
 
 
@@ -249,8 +262,8 @@ func main() {
                 close(mapChan)
         }()
 
-        for v:= range mapChan {
-		fmt.Println(v)
+        for m:= range mapChan {
+		fmt.Println(m)
 	}
 	
 	fmt.Printf("\t Finish parse\n")
