@@ -4,6 +4,7 @@ import (
 	"os"
 	"fmt"
 	"strings"
+	"strconv"
 	"flag"
 	"log"
 	"io"
@@ -14,13 +15,10 @@ import (
 )
 
 type AccountLogValue struct {	/* Account Status Statistics  */
-	Method		string	/* GET, PUT, DELETE, POST, HEAD, OPTIONS ... etc */
-	StatusCode	string	/* 200, 201, 204, 401, 403, 404, 499, 500, 501, 502 ... etc */
 	Count		int64	
-	AvgTime		int64	/* Average response time, in ms */
-	MaxTime		int64
-	MinTime		int64
-	AvgSize		int64
+	MaxTime		float64
+	MinTime		float64
+	TotalTime	float64
 	MaxSize		int64
 	MinSize		int64
 	TotalSize	int64
@@ -28,7 +26,9 @@ type AccountLogValue struct {	/* Account Status Statistics  */
 
 type AccountLogKey struct {
 	AccountName	string
-	timeHMS		string		/* hour: 08:00:00-08:59:59, minute: __:08:00-__:08:59,  second: __:__:00-__:__:00 */
+	timeHMS		string	/* hour: 08:00:00-08:59:59, minute: __:08:00-__:08:59,  second: __:__:00-__:__:00 */
+	Method		string	/* GET, PUT, DELETE, POST, HEAD, OPTIONS ... etc */
+	StatusCode	string	/* 200, 201, 204, 401, 403, 404, 499, 500, 501, 502 ... etc */
 }
 
 const (
@@ -46,9 +46,6 @@ const (
 	LOGHttpStatus
 	LOGResponseTime
 	LOGHttpSize
-	LOGNoop1
-	LOGNoop2
-	LOGHttpClient
 )
 
 
@@ -61,7 +58,6 @@ var logUrlIndex			int = LOGUrl
 var logHttpStatusIndex		int = LOGHttpStatus
 var logHttpResponseTimeIndex	int = LOGResponseTime
 var logHttpSizeIndex		int = LOGHttpSize
-var logHttpClientIndex		int = LOGHttpClient
 
 
 var workers	int
@@ -160,34 +156,111 @@ func parseLogFile(br *bufio.Reader, nWorkers *sync.WaitGroup, mapChan chan<- map
 	}
 }
 
+var TimeSizeErr int64
 func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[AccountLogKey]AccountLogValue, workersSema chan struct{}) {
 	defer nWorkers.Done()
 	defer func() { <-workersSema }()
 
-	var kh, km, ks AccountLogKey
-	var vh, vm, vs []AccountLogValue
-	accountMap := map[AccountLogKey][]AccountLogValue{}
+	accountMap := map[AccountLogKey]AccountLogValue{}
 
 	for _, line := range lines {
 		words := strings.Split(line, " ")
 		if !strings.Contains(words[LOGUrl], "AUTH_") {
 			continue
 		}
+		var time float64
+		var size int64
+		var timeErr, sizeErr bool
+		var err error
+		if time, err = strconv.ParseFloat(words[LOGResponseTime], 32); err != nil {
+			timeErr = true
+		}
+		if size, err = strconv.ParseInt(words[LOGHttpSize], 10, 32); err != nil {
+			sizeErr = true
+		}
+		if timeErr || sizeErr {
+			TimeSizeErr++
+			continue
+		}
+
+		var kh AccountLogKey
 		kh.AccountName = getAccountFromUrl(words[LOGUrl])
-		km.AccountName = getAccountFromUrl(words[LOGUrl])
-		ks.AccountName = getAccountFromUrl(words[LOGUrl])
 		kh.timeHMS = getHourFromDate(words[LOGDate])
-		km.timeHMS = getHourMinuteFromDate(words[LOGDate])
-		ks.timeHMS = getHourMinuteSecondFromDate(words[LOGDate])
+		kh.Method = words[LOGHttpMethod]
+		kh.StatusCode = words[LOGHttpStatus]
+		vh := accountMap[kh]
+		vh.TotalTime += time
+		vh.TotalSize += size
+		if time > vh.MaxTime {
+			vh.MaxTime = time
+		}
+		if time < vh.MaxTime {
+			vh.MinTime = time
+		}
+		if size > vh.MaxSize {
+			vh.MaxSize = size
+		}
+		if size < vh.MaxSize {
+			vh.MinSize = size
+		}
+		vh.Count++
+		accountMap[kh] = vh
+
+		var km AccountLogKey
+		km.AccountName = getAccountFromUrl(words[LOGUrl])
+		km.timeHMS = getHourFromDate(words[LOGDate])
+		km.Method = words[LOGHttpMethod]
+		km.StatusCode = words[LOGHttpStatus]
+		vm := accountMap[km]
+		vm.TotalTime += time
+		vm.TotalSize += size
+		if time > vm.MaxTime {
+			vm.MaxTime = time
+		}
+		if time < vm.MaxTime {
+			vm.MinTime = time
+		}
+		if size > vm.MaxSize {
+			vm.MaxSize = size
+		}
+		if size < vm.MaxSize {
+			vm.MinSize = size
+		}
+		vm.Count++
+		accountMap[km] = vm
+
+		var ks AccountLogKey
+		ks.AccountName = getAccountFromUrl(words[LOGUrl])
+		ks.timeHMS = getHourFromDate(words[LOGDate])
+		ks.Method = words[LOGHttpMethod]
+		ks.StatusCode = words[LOGHttpStatus]
+		vs := accountMap[ks]
+		vs.TotalTime += time
+		vs.TotalSize += size
+		if time > vs.MaxTime {
+			vs.MaxTime = time
+		}
+		if time < vs.MaxTime {
+			vs.MinTime = time
+		}
+		if size > vs.MaxSize {
+			vs.MaxSize = size
+		}
+		if size < vs.MaxSize {
+			vs.MinSize = size
+		}
+		vs.Count++
+		accountMap[ks] = vs
 	}
-	accountMap[kh] = vh
-	accountMap[km] = vm
-	accountMap[ks] = vs
 	mapChan <- accountMap
 }
 
 func getAccountFromUrl(url string) string {
 	words := strings.Split(url, "/")
+	index := strings.Index(words[2], "?")
+	if index > 0 {
+		return words[2][:index]
+	}
 	return words[2]
 }
 
@@ -239,7 +312,6 @@ func main() {
 		//do nothing
 	}
 	*/
-
 	
 	file, err := os.Open(args[0]) // For read access.
 	if err != nil {
@@ -263,9 +335,12 @@ func main() {
         }()
 
         for m:= range mapChan {
-		fmt.Println(m)
+		for k, v := range m {
+			fmt.Println(k.AccountName)
+			fmt.Println(v.Count)
+		}
 	}
 	
-	fmt.Printf("\t Finish parse\n")
+	fmt.Printf("\tFinish parse:  TimeSizeErr: [%d] \n", TimeSizeErr)
 
 }
