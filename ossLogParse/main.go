@@ -165,15 +165,16 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
 
 	accountMap := map[AccountLogKey]AccountLogValue{}
 
+	var kh, km, ks	AccountLogKey
+	var time float64
+	var size int64
+	var timeErr, sizeErr bool
+	var err error
 	for _, line := range lines {
 		words := strings.Split(line, " ")
 		if !strings.Contains(words[LOGUrl], "AUTH_") {
 			continue
 		}
-		var time float64
-		var size int64
-		var timeErr, sizeErr bool
-		var err error
 		if time, err = strconv.ParseFloat(words[LOGResponseTime], 32); err != nil {
 			timeErr = true
 		}
@@ -185,74 +186,109 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
 			continue
 		}
 
-		var kh AccountLogKey
+		if strings.Contains(line, "AUTH_GIS-ASS-LPS-PRD-DR") {
+			fmt.Println(line)
+		}
+
 		kh.AccountName = getAccountFromUrl(words[LOGUrl])
 		kh.timeHMS = getHourFromDate(words[LOGDate])
 		kh.Method = words[LOGHttpMethod]
 		kh.StatusCode = words[LOGHttpStatus]
-		vh := accountMap[kh]
-		vh.TotalTime += time
-		vh.TotalSize += size
-		if time > vh.MaxTime {
+		
+		if vh, ok := accountMap[kh]; ok {
+			vh.TotalTime += time
+			vh.TotalSize += size
+			if time > vh.MaxTime {
+				vh.MaxTime = time
+			}
+			if time < vh.MinTime {
+				vh.MinTime = time
+			}
+			if size > vh.MaxSize {
+				vh.MaxSize = size
+			}
+			if size < vh.MinSize {
+				vh.MinSize = size
+			}
+			vh.Count++
+			accountMap[kh] = vh
+		} else {
+			vh.TotalTime = time
+			vh.TotalSize = size
 			vh.MaxTime = time
-		}
-		if time < vh.MaxTime {
 			vh.MinTime = time
-		}
-		if size > vh.MaxSize {
 			vh.MaxSize = size
-		}
-		if size < vh.MaxSize {
 			vh.MinSize = size
+			vh.Count = 1
+			accountMap[kh] = vh
 		}
-		vh.Count++
-		accountMap[kh] = vh
 
-		var km AccountLogKey
 		km.AccountName = getAccountFromUrl(words[LOGUrl])
-		km.timeHMS = getHourFromDate(words[LOGDate])
+		km.timeHMS = getHourMinuteFromDate(words[LOGDate])
 		km.Method = words[LOGHttpMethod]
 		km.StatusCode = words[LOGHttpStatus]
-		vm := accountMap[km]
-		vm.TotalTime += time
-		vm.TotalSize += size
-		if time > vm.MaxTime {
-			vm.MaxTime = time
-		}
-		if time < vm.MaxTime {
-			vm.MinTime = time
-		}
-		if size > vm.MaxSize {
-			vm.MaxSize = size
-		}
-		if size < vm.MaxSize {
-			vm.MinSize = size
-		}
-		vm.Count++
-		accountMap[km] = vm
+		if vm, ok := accountMap[km]; ok {
+			vm.TotalTime += time
+			vm.TotalSize += size
+			if time > vm.MaxTime {
+				vm.MaxTime = time
+			}
+			if time < vm.MinTime {
+				vm.MinTime = time
+			}
+			if size > vm.MaxSize {
+				vm.MaxSize = size
+			}
+			if size < vm.MinSize {
+				vm.MinSize = size
+			}
+			vm.Count++
+			accountMap[km] = vm
+                } else {
+                        vm.TotalTime = time
+                        vm.TotalSize = size
+                        vm.MaxTime = time
+                        vm.MinTime = time
+                        vm.MaxSize = size
+                        vm.MinSize = size
+                        vm.Count = 1
+			accountMap[km] = vm
+                }
 
-		var ks AccountLogKey
 		ks.AccountName = getAccountFromUrl(words[LOGUrl])
-		ks.timeHMS = getHourFromDate(words[LOGDate])
+		ks.timeHMS = getHourMinuteSecondFromDate(words[LOGDate])
 		ks.Method = words[LOGHttpMethod]
 		ks.StatusCode = words[LOGHttpStatus]
-		vs := accountMap[ks]
-		vs.TotalTime += time
-		vs.TotalSize += size
-		if time > vs.MaxTime {
-			vs.MaxTime = time
-		}
-		if time < vs.MaxTime {
-			vs.MinTime = time
-		}
-		if size > vs.MaxSize {
-			vs.MaxSize = size
-		}
-		if size < vs.MaxSize {
-			vs.MinSize = size
-		}
-		vs.Count++
-		accountMap[ks] = vs
+		if vs, ok := accountMap[ks]; ok {
+			vs.TotalTime += time
+			vs.TotalSize += size
+			if time > vs.MaxTime {
+				vs.MaxTime = time
+			}
+			if time < vs.MinTime {
+				vs.MinTime = time
+			}
+			if size > vs.MaxSize {
+				vs.MaxSize = size
+			}
+			if size < vs.MinSize {
+				vs.MinSize = size
+			}
+			vs.Count++
+			accountMap[ks] = vs
+                } else {
+                        vs.TotalTime = time
+                        vs.TotalSize = size
+                        vs.MaxTime = time
+                        vs.MinTime = time
+                        vs.MaxSize = size
+                        vs.MinSize = size
+                        vs.Count = 1
+			accountMap[ks] = vs
+                }
+		//if ks.AccountName == "AUTH_GIS-ASS-LPS-PRD-DR" {
+		//	fmt.Printf("count: %d\n", accountMap[ks].Count)
+		//}
 	}
 	mapChan <- accountMap
 }
@@ -260,6 +296,7 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
 func getAccountFromUrl(url string) string {
 	words := strings.Split(url, "/")
 	index := strings.Index(words[2], "?")
+
 	if index > 0 {
 		return words[2][:index]
 	}
@@ -370,6 +407,7 @@ func main() {
 	
 	fmt.Printf("\tFinish parse:  TimeSizeErr: [%d] \n", TimeSizeErr)
 	for ik, iv := range totalMap {
+		if ik.AccountName == "AUTH_GIS-ASS-LPS-PRD-DR" {
 		fmt.Printf("%v: \n", ik)
 		fmt.Printf("\t\t Count: %d\n", iv.Count) 
 		fmt.Printf("\t\t MaxTime: %f\n", iv.MaxTime) 
@@ -379,5 +417,6 @@ func main() {
 		fmt.Printf("\t\t MinSize: %d\n", iv.MinSize) 
 		fmt.Printf("\t\t TotalSize: %d\n", iv.TotalSize) 
 		fmt.Printf("\t\t AverageSize: %d\n", iv.AverageSize) 
+		}
 	}
 }
