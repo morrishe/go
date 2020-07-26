@@ -19,9 +19,11 @@ type AccountLogValue struct {	/* Account Status Statistics  */
 	MaxTime		float64
 	MinTime		float64
 	TotalTime	float64
+	AverageTime	float64
 	MaxSize		int64
 	MinSize		int64
 	TotalSize	int64
+	AverageSize	int64
 }
 
 type AccountLogKey struct {
@@ -285,6 +287,33 @@ func getHourMinuteSecondFromDate(date string) string {
 	return tmp + "-" + tmp
 }
 
+func summaryAccountMap(sum, item map[AccountLogKey]AccountLogValue) {
+	for itemk, itemv := range item {
+		if sumv, ok := sum[itemk]; ok {
+			sumv.Count += itemv.Count
+			sumv.TotalSize += itemv.TotalSize
+			sumv.TotalTime += itemv.TotalTime
+			if itemv.MaxSize > sumv.MaxSize {
+				sumv.MaxSize = itemv.MaxSize
+			}
+			if itemv.MinSize < sumv.MinSize {
+				sumv.MinSize = itemv.MinSize
+			}
+			if itemv.MaxTime > sumv.MaxTime {
+				sumv.MaxTime = itemv.MaxTime
+			}
+			if itemv.MinTime < sumv.MinTime {
+				sumv.MinTime = itemv.MinTime
+			}
+		} else {
+			sum[itemk] = itemv
+		}
+	}
+	for _, sumv := range sum {
+		sumv.AverageSize = sumv.TotalSize/sumv.Count
+		sumv.AverageTime = sumv.TotalTime/float64(sumv.Count)
+	}
+}
 
 func main() {
 	flag.IntVar(&workers, "workers", WORKERS, "concurrent goroutine workers")
@@ -334,13 +363,21 @@ func main() {
                 close(mapChan)
         }()
 
+	totalMap := map[AccountLogKey]AccountLogValue{}
         for m:= range mapChan {
-		for k, v := range m {
-			fmt.Println(k.AccountName)
-			fmt.Println(v.Count)
-		}
+		summaryAccountMap(totalMap, m)
 	}
 	
 	fmt.Printf("\tFinish parse:  TimeSizeErr: [%d] \n", TimeSizeErr)
-
+	for ik, iv := range totalMap {
+		fmt.Printf("%v: \n", ik)
+		fmt.Printf("\t\t Count: %d\n", iv.Count) 
+		fmt.Printf("\t\t MaxTime: %f\n", iv.MaxTime) 
+		fmt.Printf("\t\t MinTime: %f\n", iv.MinTime) 
+		fmt.Printf("\t\t AverageTime: %f\n", iv.AverageTime) 
+		fmt.Printf("\t\t MaxSize: %d\n", iv.MaxSize) 
+		fmt.Printf("\t\t MinSize: %d\n", iv.MinSize) 
+		fmt.Printf("\t\t TotalSize: %d\n", iv.TotalSize) 
+		fmt.Printf("\t\t AverageSize: %d\n", iv.AverageSize) 
+	}
 }
