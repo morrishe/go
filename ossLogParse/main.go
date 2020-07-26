@@ -28,7 +28,7 @@ type AccountLogValue struct {	/* Account Status Statistics  */
 
 type AccountLogKey struct {
 	AccountName	string
-	timeHMS		string	/* hour: 08:00:00-08:59:59, minute: __:08:00-__:08:59,  second: __:__:00-__:__:00 */
+	TimeHMS		string	/* hour: 08:00:00-08:59:59, minute: __:08:00-__:08:59,  second: __:__:00-__:__:00 */
 	Method		string	/* GET, PUT, DELETE, POST, HEAD, OPTIONS ... etc */
 	StatusCode	string	/* 200, 201, 204, 401, 403, 404, 499, 500, 501, 502 ... etc */
 }
@@ -158,19 +158,20 @@ func parseLogFile(br *bufio.Reader, nWorkers *sync.WaitGroup, mapChan chan<- map
 	}
 }
 
-var TimeSizeErr int64
 func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[AccountLogKey]AccountLogValue, workersSema chan struct{}) {
 	defer nWorkers.Done()
 	defer func() { <-workersSema }()
 
 	accountMap := map[AccountLogKey]AccountLogValue{}
 
-	var kh, km, ks	AccountLogKey
+	var kh, km, ks 	AccountLogKey
 	var time float64
 	var size int64
 	var timeErr, sizeErr bool
 	var err error
+	var TimeSizeErr, TotalLines int64
 	for _, line := range lines {
+		TotalLines++	
 		words := strings.Split(line, " ")
 		if !strings.Contains(words[LOGUrl], "AUTH_") {
 			continue
@@ -186,12 +187,12 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
 			continue
 		}
 
-		if strings.Contains(line, "AUTH_GIS-ASS-LPS-PRD-DR") {
-			fmt.Println(line)
-		}
+		//if strings.Contains(line, "AUTH_GIS-ASS-LPS-PRD-DR") {
+		//	fmt.Println(line)
+		//}
 
 		kh.AccountName = getAccountFromUrl(words[LOGUrl])
-		kh.timeHMS = getHourFromDate(words[LOGDate])
+		kh.TimeHMS = getHourFromDate(words[LOGDate])
 		kh.Method = words[LOGHttpMethod]
 		kh.StatusCode = words[LOGHttpStatus]
 		
@@ -222,9 +223,12 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
 			vh.Count = 1
 			accountMap[kh] = vh
 		}
+		//if kh.AccountName == "AUTH_GIS-ASS-LPS-PRD-DR" {
+		//	fmt.Println(kh.AccountName, accountMap[kh].Count)
+		//}
 
 		km.AccountName = getAccountFromUrl(words[LOGUrl])
-		km.timeHMS = getHourMinuteFromDate(words[LOGDate])
+		km.TimeHMS = getHourMinuteFromDate(words[LOGDate])
 		km.Method = words[LOGHttpMethod]
 		km.StatusCode = words[LOGHttpStatus]
 		if vm, ok := accountMap[km]; ok {
@@ -256,7 +260,7 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
                 }
 
 		ks.AccountName = getAccountFromUrl(words[LOGUrl])
-		ks.timeHMS = getHourMinuteSecondFromDate(words[LOGDate])
+		ks.TimeHMS = getHourMinuteSecondFromDate(words[LOGDate])
 		ks.Method = words[LOGHttpMethod]
 		ks.StatusCode = words[LOGHttpStatus]
 		if vs, ok := accountMap[ks]; ok {
@@ -286,8 +290,8 @@ func parseLines(lines []string, nWorkers *sync.WaitGroup, mapChan chan<- map[Acc
                         vs.Count = 1
 			accountMap[ks] = vs
                 }
-		//if ks.AccountName == "AUTH_GIS-ASS-LPS-PRD-DR" {
-		//	fmt.Printf("count: %d\n", accountMap[ks].Count)
+		//if kh.AccountName == "AUTH_GIS-ASS-LPS-PRD-DR" {
+		//	fmt.Printf("TotalLines: %d, Time: %f\n", TotalLines, accountMap[kh].TotalTime)
 		//}
 	}
 	mapChan <- accountMap
@@ -342,13 +346,15 @@ func summaryAccountMap(sum, item map[AccountLogKey]AccountLogValue) {
 			if itemv.MinTime < sumv.MinTime {
 				sumv.MinTime = itemv.MinTime
 			}
+			sum[itemk] = sumv
 		} else {
 			sum[itemk] = itemv
 		}
 	}
-	for _, sumv := range sum {
+	for sumk, sumv := range sum {
 		sumv.AverageSize = sumv.TotalSize/sumv.Count
 		sumv.AverageTime = sumv.TotalTime/float64(sumv.Count)
+		sum[sumk] = sumv
 	}
 }
 
@@ -400,23 +406,22 @@ func main() {
                 close(mapChan)
         }()
 
-	totalMap := map[AccountLogKey]AccountLogValue{}
+	var TotalResultMap = make(map[AccountLogKey]AccountLogValue)
         for m:= range mapChan {
-		summaryAccountMap(totalMap, m)
+		summaryAccountMap(TotalResultMap, m)
 	}
 	
-	fmt.Printf("\tFinish parse:  TimeSizeErr: [%d] \n", TimeSizeErr)
-	for ik, iv := range totalMap {
-		if ik.AccountName == "AUTH_GIS-ASS-LPS-PRD-DR" {
-		fmt.Printf("%v: \n", ik)
-		fmt.Printf("\t\t Count: %d\n", iv.Count) 
-		fmt.Printf("\t\t MaxTime: %f\n", iv.MaxTime) 
-		fmt.Printf("\t\t MinTime: %f\n", iv.MinTime) 
-		fmt.Printf("\t\t AverageTime: %f\n", iv.AverageTime) 
-		fmt.Printf("\t\t MaxSize: %d\n", iv.MaxSize) 
-		fmt.Printf("\t\t MinSize: %d\n", iv.MinSize) 
-		fmt.Printf("\t\t TotalSize: %d\n", iv.TotalSize) 
-		fmt.Printf("\t\t AverageSize: %d\n", iv.AverageSize) 
-		}
+	fmt.Printf("\tFinish parse:  \n")
+
+	for ik, iv := range TotalResultMap {
+		logger.Printf("%v: \n", ik)
+		logger.Printf("\t\t Count: %d\n", iv.Count) 
+		logger.Printf("\t\t MaxTime: %.4f\n", iv.MaxTime) 
+		logger.Printf("\t\t MinTime: %.4f\n", iv.MinTime) 
+		logger.Printf("\t\t AverageTime: %.4f\n", iv.AverageTime) 
+		logger.Printf("\t\t MaxSize: %d\n", iv.MaxSize) 
+		logger.Printf("\t\t MinSize: %d\n", iv.MinSize) 
+		logger.Printf("\t\t TotalSize: %d\n", iv.TotalSize) 
+		logger.Printf("\t\t AverageSize: %d\n", iv.AverageSize) 
 	}
 }
