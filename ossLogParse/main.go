@@ -360,24 +360,36 @@ func summaryAccountMap(sum, item map[AccountLogKey]AccountLogValue) {
 
 func main() {
 	flag.IntVar(&workers, "workers", WORKERS, "concurrent goroutine workers")
-	flag.StringVar(&configFile, "config", "AccountLogParse.conf", "account log parse config file")
-	flag.StringVar(&outputFile, "output", "/tmp/AccountLogParseResult", "account log parse result file")
+	flag.StringVar(&configFile, "config", "LogParse.conf", "account log parse config file")
+	flag.StringVar(&outputFile, "output", "/tmp/LogParseResult", "account log parse result file")
 
         flag.Parse()
         args := flag.Args()
-        if len(args) != 1 {
-		fmt.Fprintf(os.Stderr, "USAGE: %s [options] LogFile\n", os.Args[0])
+        if len(args) < 1 || len(args) > 3 {
+		fmt.Fprintf(os.Stderr, "USAGE: %s [options] LogFile [AccountName] [TimeField]\n", os.Args[0])
     		flag.PrintDefaults()
 		os.Exit(1)
         }
 
-        l, err := os.OpenFile(outputFile, os.O_APPEND | os.O_RDWR | os.O_CREATE, 0755)
+	var logFile, accountName, timeField	string
+	if len(args) == 1 {
+		logFile = args[0]
+	} else if len(args) == 2 {
+		logFile = args[0]
+		accountName = args[1]
+	} else if len(args) == 3 {
+		logFile = args[0]
+		accountName = args[1]
+		timeField = args[2]
+	}
+
+        l, err := os.OpenFile(outputFile, os.O_TRUNC | os.O_RDWR | os.O_CREATE, 0755)
         if err != nil {
                 fmt.Fprintf(os.Stderr, "os.OpenFile('%s') error: %v", outputFile, err)
 		os.Exit(2)
         }
         defer l.Close()
-	logger = log.New(l, "", log.LstdFlags)
+	logger = log.New(l, "", 0)
 
 	/*
 	if err = parseConfigFile(excludeFrom, excludeDirMap, excludeFileMap); err != nil {
@@ -385,7 +397,7 @@ func main() {
 	}
 	*/
 	
-	file, err := os.Open(args[0]) // For read access.
+	file, err := os.Open(logFile) // For read access.
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -410,18 +422,19 @@ func main() {
         for m:= range mapChan {
 		summaryAccountMap(TotalResultMap, m)
 	}
-	
-	fmt.Printf("\tFinish parse:  \n")
 
+	fmt.Println(timeField)	
 	for ik, iv := range TotalResultMap {
-		logger.Printf("%v: \n", ik)
-		logger.Printf("\t\t Count: %d\n", iv.Count) 
-		logger.Printf("\t\t MaxTime: %.4f\n", iv.MaxTime) 
-		logger.Printf("\t\t MinTime: %.4f\n", iv.MinTime) 
-		logger.Printf("\t\t AverageTime: %.4f\n", iv.AverageTime) 
-		logger.Printf("\t\t MaxSize: %d\n", iv.MaxSize) 
-		logger.Printf("\t\t MinSize: %d\n", iv.MinSize) 
-		logger.Printf("\t\t TotalSize: %d\n", iv.TotalSize) 
-		logger.Printf("\t\t AverageSize: %d\n", iv.AverageSize) 
+		if strings.Contains(ik.AccountName, accountName) {
+			logger.Printf("%v: \n", ik)
+			logger.Printf("\t\t Count: %d\n", iv.Count) 
+			logger.Printf("\t\t MaxTime: %.4f\n", iv.MaxTime) 
+			logger.Printf("\t\t MinTime: %.4f\n", iv.MinTime) 
+			logger.Printf("\t\t AverageTime: %.4f\n", iv.AverageTime) 
+			logger.Printf("\t\t MaxSize: %d\n", iv.MaxSize) 
+			logger.Printf("\t\t MinSize: %d\n", iv.MinSize) 
+			logger.Printf("\t\t TotalSize: %d\n", iv.TotalSize) 
+			logger.Printf("\t\t AverageSize: %d\n", iv.AverageSize) 
+		}
 	}
 }
