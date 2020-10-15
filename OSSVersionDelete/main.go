@@ -48,7 +48,7 @@ var verbose	int
 var readdirCount	int
 var euid = os.Geteuid()
 
-/* when a big directory is encounted, we need invoke *File.readdir() many times, when finished all of files copy (in big directory), we can chmod the big directory
+/* when a big directory is encounted, we need invoke *File.readdir() many times, when finished all of files delete (in big directory), we can chmod the big directory
   largeDirMap to record the times of invoke *File.readdir(),  largeDirMutex for avoid concurrent access 
  */
 var largeDPMap = map[string]int64{}
@@ -174,7 +174,7 @@ func doFileDelete(srcFile string) FileNode {
 
 func main() {
 	flag.IntVar(&dirWorkers, "dirWorker", DIRWORKERS, "concurrent walk directory workers")
-	flag.IntVar(&fileWorkers, "fileWorker", FILEWORKERS, "concurrent file copy workers")
+	flag.IntVar(&fileWorkers, "fileWorker", FILEWORKERS, "concurrent file delete workers")
 	flag.StringVar(&logfile, "logfile", "/tmp/OSSVersionDelete.log", "log filename")
 	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 null message, 1 for dir, >=2 for dir and files")
 	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
@@ -254,7 +254,7 @@ func main() {
 						} else {
 							logger.Printf("\t %s: finish delete '%s'\n", taskId, di.srcDir)
 						}
-						logger.Printf("\t %s: dirs[%s] files[%s], totalSize[%s]bytes copyFiles[%s] totalDeleteSize[%s]bytes, err[%s]\n", 
+						logger.Printf("\t %s: dirs[%s] files[%s], totalSize[%s]bytes deleteFiles[%s] totalDeleteSize[%s]bytes, err[%s]\n", 
 							taskId, V(di.dirCount), V(di.fileCount), V(di.totalSize), V(di.deleteFileCount), V(di.totalDeleteSize), V(di.errCount))
 					}
 					/* Large directory need many-times readdir(), it should be restore source directory permission the last times invoke,
