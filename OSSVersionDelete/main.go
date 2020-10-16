@@ -37,11 +37,13 @@ const (
 	DIRWORKERS = 1024
 	FILEWORKERS = 4096
 	READDIRCOUNT = 4096
+	VERSIONHOURS = 72
 )
 
 var dirWorkers	int
 var fileWorkers	int
-// log file, default '/tmp/NASCopy.log'
+var versionHours	int64
+// log file, default '/tmp/OSSVersionDelete.log'
 var logfile	string
 var logger	*log.Logger
 var verbose	int
@@ -98,7 +100,7 @@ func walkDir(srcDir string,  nDir *sync.WaitGroup, dfPairChan chan<- map[DirInfo
 					continue
 				}
 				gap = time.Now().Unix() - deleteTime
-				if gap <= (86400 * 3) {
+				if gap <= (3600 * versionHours) {
 					continue
 				}	
 				srcFile := filepath.Join(srcDir, entry.Name())
@@ -175,8 +177,9 @@ func doFileDelete(srcFile string) FileNode {
 func main() {
 	flag.IntVar(&dirWorkers, "dirWorker", DIRWORKERS, "concurrent walk directory workers")
 	flag.IntVar(&fileWorkers, "fileWorker", FILEWORKERS, "concurrent file delete workers")
+	flag.Int64Var(&versionHours, "versionHours", VERSIONHOURS, "version hours away from now")
 	flag.StringVar(&logfile, "logfile", "/tmp/OSSVersionDelete.log", "log filename")
-	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 null message, 1 for dir, >=2 for dir and files")
+	flag.IntVar(&verbose, "verbose", 0, "verbose message, 0 for normal messages, 1 for +directorys messages, >=2 for +directorys and +files messages")
 	flag.IntVar(&readdirCount, "readdirCount", READDIRCOUNT, "max entry every (*File).Readdir(), when read huge directory")
 
         flag.Parse()
