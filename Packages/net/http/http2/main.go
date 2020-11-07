@@ -14,7 +14,10 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintln(w, "Body: ", r.Body)
 	fmt.Fprintln(w, "RemoteAddr: ", r.RemoteAddr)
-	w.Write([]byte("请求成功!!!"))
+	w.Write([]byte("请求成功!!!\n\n"))
+
+	params := r.URL.Query()
+	fmt.Fprintln(w, "name: ", params.Get("name"),"; ", "hobby: ", params.Get("hobby"))
 }
 
 func main() {
